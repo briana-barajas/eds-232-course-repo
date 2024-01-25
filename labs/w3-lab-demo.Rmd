@@ -1,0 +1,156 @@
+---
+title: "Lab 3 Demo"
+author: "Briana Baraas"
+date: "2023-01-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rsample)
+library(skimr) #exploratory package for dataset summaries
+library(glmnet)
+```
+
+## Data Wrangling and Exploration
+
+```{r data}
+#load and inspect the data
+dat <- AmesHousing::make_ames()
+
+```
+
+##Train a model
+
+```{r intial_split}
+# Data splitting with {rsample} 
+set.seed(123) #set a seed for reproducibility
+
+# split data (default prop is 3/4)
+split <- initial_split(dat)
+
+# isolate training and test data
+ames_train <- training(split)
+ames_test  <- testing(split)
+
+```
+
+```{r model_data}
+#Create training feature matrices using model.matrix() (auto encoding of categorical variables)
+
+# creating the model matrix puts data in a form that the caret uses
+  # outcome variable ~ predictor, use . to select all predictors 
+  # -1 removes col for intercept variable (not needed, only has value 1)
+X <- model.matrix(Sale_Price ~ ., ames_train)[,-1]  
+
+# transform y with log() transformation
+Y <- log(ames_train$Sale_Price)
+
+# View data, Sale_Price is heavily right skewed & can be log transformed
+skim(dat)
+```
+
+```{r glmnet}
+#fit a ridge model, passing X,Y,alpha to glmnet()
+ridge1 <- glmnet(x = X, y = Y,
+                alpha = 0) #set to 0 for ridge model
+
+#plot() the glmnet model object
+plot(ridge1, 
+     xvar = 'lambda') #variable to plot
+```
+
+**Interpretation:** Plot shows that lambda is shrinking coefficients for the predictor variables.
+
+```{r}
+# lambdas applied to penalty parameter.  Examine the first few
+ridge1$lambda %>% head()
+
+# small lambda results in large coefficients
+coef(ridge1)[c("Latitude", "Overall_QualVery_Excellent"), 100]
+
+# what about for small coefficients?
+coef(ridge1)[c("Latitude", "Overall_QualVery_Excellent"), 1]
+
+```
+
+**Interpretation:** The 100 and 1 represent the column that you are indexing (?). When lambda is larger (100) we see that `Latitude` has a smaller lambda, meaning it has a more significant impact on the model than `Overall_QualVery_Excellent`.
+
+How much improvement to our loss function as lambda changes?
+
+##Tuning
+We'll be using cross-validation, and re-sampling the data and running the model on a portion of the data and averaging the error for different folds. The default is a 10-fold sample. 
+```{r cv.glmnet}
+# Apply CV ridge regression to Ames data.  Same arguments as before to glmnet()
+ridge2 <- cv.glmnet(x = X, y = Y,
+                   alpha = 0) #ridge
+
+# Apply CV lasso regression to Ames data
+lasso <- cv.glmnet(x = X, y = Y,
+                   alpha = 1) #laso
+  
+# plot results
+par(mfrow = c(1, 2))
+plot(ridge2, main = "Ridge penalty\n\n")
+plot(lasso, main = "Lasso penalty\n\n")
+```
+**Interpretation:** As lambda is increasing, the mean-squared error changes. For a good model, the MSE should be a lower value. Over the set of lambdas we explored, it looks like constraining the coefficients too much (higher lambda) decreases the model's performance. The first dotted line indicates the value of lambda that returns the lowest MSE. The second line gives you the most parsimonious model (fewer variables) that's within 1 standard error of the first line. 
+
+10-fold CV MSE for a ridge and lasso model. What's the "rule of 1 standard deviation"?
+
+In both models we see a slight improvement in the MSE as our penalty log(λ) gets larger, suggesting that a regular OLS model likely overfits the training data. But as we constrain it further (i.e., continue to increase the penalty), our MSE starts to increase.
+
+Let's examine the important parameter values apparent in the plots.
+
+```{r}
+# ============= Ridge model =============
+# minimum MSE
+min(ridge2$cvm)
+
+# lambda for this min MSE
+ridge2$lambda.min
+
+# 1-SE rule
+ridge2$cvm[ridge2$lambda == ridge2$lambda.1se]
+
+# lambda for this MSE
+ridge2$lambda.1se
+
+# ============ Lasso model ============
+
+# minimum MSE
+min(lasso$cvm)
+
+# lambda for this min MSE
+lasso$lambda
+
+# 1-SE rule
+lasso$cvm[lasso$lambda == lasso$lambda.1se]
+
+# lambda for this MSE
+lasso$lambda.1se
+
+# No. of coef | 1-SE MSE (number of coefficients/predictors is 169)
+lasso$nzero[lasso$lambda == lasso$lambda.min]
+```
+
+```{r}
+# Ridge model
+ridge_min <- glmnet()
+
+# Lasso model
+lasso_min
+
+
+par(mfrow = c(1, 2))
+# plot ridge model
+plot(ridge_min, xvar = "lambda", main = "Ridge penalty\n\n")
+abline(v = log(ridge$lambda.min), col = "red", lty = "dashed")
+abline(v = log(ridge$lambda.1se), col = "blue", lty = "dashed")
+
+# plot lasso model
+plot(lasso_min, xvar = "lambda", main = "Lasso penalty\n\n")
+abline(v = log(lasso$lambda.min), col = "red", lty = "dashed")
+abline(v = log(lasso$lambda.1se), col = "blue", lty = "dashed")
+```
