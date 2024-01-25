@@ -1,9 +1,8 @@
 ---
-title: "Lab1"
+title: "Lab 1"
 author: 'Briana Barajas'
 date: "`r Sys.Date()`"
 output:
-  pdf_document: default
   html_document: default
 ---
 
@@ -157,7 +156,6 @@ new_pumpkins %>%
 ## Data Visualization
 
 ```{r}
-
 # Set theme
 theme_set(theme_minimal())
 
