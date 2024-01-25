@@ -1,8 +1,8 @@
 ---
-title: "Barajas_Lab3"
+title: "Barajas_Lab 3"
 author: "Briana Barajas"
 date: 2024-01-25
-output: html
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -119,10 +119,12 @@ Data scientists often use the "one-standard-error" rule when tuning lambda to se
 -   ***Question 8.*** Find the number of predictors associated with this model (hint: the \$nzero is the \# of predictors column).
 ```{r}
 # find number of coefficients for 1-SE lasso model
-glue::glue("Number of predictors for the lasso model that follows the 1-SE rule: {lasso$nzero[lasso$lambda == lasso$lambda.1se]} ")
+glue::glue("Number of predictors for the lasso model that follows the 1-SE rule: {ab_lasso$nzero[ab_lasso$lambda == ab_lasso$lambda.1se]} ")
 ```
 
 
 -   ***Question 9*****.** Which regularized regression worked better for this task, ridge or lasso? Explain your answer.
 
-__ANS:__ Based on the MSE alone, the lasso model was better able to model the relationship between abalone age and the additional measured variables (sex, length, height, weight, etc). 
+__ANS:__ The lasso model has a smaller MSE (4.75 < 5.06), meaning it was able to predict abalone rings based on the additional variables with less error than the ridge model. Within the lasso model, you must also select the model with the minimum MSE, or the model within one standard error of the MSE. In this case, the lasso model within one standard error of the lowest MSE allows you to efficiently predict abalone rings without measuring for all 10 variables. This can have important implications for the data collection process since less variables can be measured. 
+
+
