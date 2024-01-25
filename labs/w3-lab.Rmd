@@ -48,26 +48,81 @@ We'll follow our text book's lead and use the `caret` package in our approach to
 
 -   ***Question 2***. Use the model.matrix() function to create a predictor matrix, x, and assign the Rings variable to an outcome vector, y.
 
-```{r}
+```{r, message=FALSE}
+# create model matrix
 ab_X <- model.matrix(rings ~ ., ab_train)[,-1]
+
+# assess if Y needs to be log transformed
+ggplot(abdat) +
+  geom_histogram(aes(x = rings), fill = '#CDB4DB', alpha = 0.7) +
+  geom_histogram(aes(x = log(rings)), fill = '#A2D2FF', alpha = 0.7) +
+  labs(caption = "Purple - no transformation\n Blue - log transformation",
+       title = 'Ring Distribution') +
+  theme_minimal()
+
+# assign outcome vector Y, no transformation needed
+ab_Y <- ab_train$rings
+
 ```
 
 -   ***Question 3***. Fit a ridge model (controlled by the alpha parameter) using the glmnet() function. Make a plot showing how the estimated coefficients change with lambda. (Hint: You can call plot() directly on the glmnet() objects).
+```{r}
+# fit and plot the ridge model
+plot(glmnet(x = ab_X, y = ab_Y,
+            alpha = 0))
+```
+
 
 ### Using *k*-fold cross validation resampling and tuning our models
 
 In lecture we learned about two methods of estimating our model's generalization error by resampling, cross validation and bootstrapping. We'll use the *k*-fold cross validation method in this lab. Recall that lambda is a tuning parameter that helps keep our model from over-fitting to the training data. Tuning is the process of finding the optima value of lamba.
 
--   ***Question 4***. This time fit a ridge regression model and a lasso model, both with using cross validation. The glmnet package kindly provides a cv.glmnet() function to do this (similar to the glmnet() function that we just used). Use the alpha argument to control which type of model you are running. Plot the results.
+-   ***Question 4***. This time fit a ridge regression model and a lasso model, both with using cross validation. The `glmnet` package kindly provides a `cv.glmnet()` function to do this (similar to the `glmnet()` function that we just used). Use the alpha argument to control which type of model you are running. Plot the results.
+
+```{r}
+# apply k-fold ridge regression
+ab_ridge <- cv.glmnet(x = ab_X, y = ab_Y,
+                      alpha = 0)
+
+# apply k-fold lasso model
+ab_lasso <- cv.glmnet(x = ab_X, y = ab_Y,
+                      alpha = 1)
+
+# Plot results
+par(mfrow = c(1,2))
+plot(ab_ridge, main = "Ridge Penalty")
+plot(ab_lasso, main = "Lasso Penalty")
+```
+
 
 -   ***Question 5***. Interpret the graphs. What is being displayed on the axes here? How does the performance of the models change with the value of lambda?
+__ANS:__ The x-axis represents the logged value of lambda, and the y-axis is the mean-squared error (MSE) for the model. For both the ridge and lasso regression increasing the penalty also increases the MSE, meaning the models with higher constraints are less suitable.
 
--   ***Question 6***. Inspect the ridge model object you created with cv.glmnet(). The \$cvm column shows the MSEs for each CV fold. What is the minimum MSE? What is the value of lambda associated with this MSE minimum?
+-   ***Question 6***. Inspect the _ridge_ model object you created with `cv.glmnet()`. The \$cvm column shows the MSEs for each CV fold. What is the minimum MSE? What is the value of lambda associated with this MSE 
+minimum?
+
+```{r}
+# inspect ridge model
+glue::glue("Inspect ridge model \n Minimum MSE for a cv-fold: {min(ab_ridge$cvm)}\n Lambda for min cv-fold: {ab_ridge$lambda.min}\n")
+
+```
+
 
 -   ***Question 7***. Do the same for the lasso model. What is the minimum MSE? What is the value of lambda associated with this MSE minimum?
 
-Data scientists often use the "one-standard-error" rule when tuning lambda to select the best model. This rule tells us to pick the most parsimonious model (fewest number of predictors) while still remaining within one standard error of the overall minimum cross validation error. The cv.glmnet() model object has a column that automatically finds the value of lambda associated with the model that produces an MSE that is one standard error from the MSE minimum (\$lambda.1se).
+```{r}
+glue::glue("Inspect lasso model \n Minimum MSE for a cv-fold: {min(ab_lasso$cvm)}\n Lambda for min cv-fold: {ab_lasso$lambda.min}\n")
+```
+
+Data scientists often use the "one-standard-error" rule when tuning lambda to select the best model. This rule tells us to pick the most parsimonious model (fewest number of predictors) while still remaining within one standard error of the overall minimum cross validation error. The `cv.glmnet()` model object has a column that automatically finds the value of lambda associated with the model that produces an MSE that is one standard error from the MSE minimum (\$lambda.1se).
 
 -   ***Question 8.*** Find the number of predictors associated with this model (hint: the \$nzero is the \# of predictors column).
+```{r}
+# find number of coefficients for 1-SE lasso model
+glue::glue("Number of predictors for the lasso model that follows the 1-SE rule: {lasso$nzero[lasso$lambda == lasso$lambda.1se]} ")
+```
+
 
 -   ***Question 9*****.** Which regularized regression worked better for this task, ridge or lasso? Explain your answer.
+
+__ANS:__ Based on the MSE alone, the lasso model was better able to model the relationship between abalone age and the additional measured variables (sex, length, height, weight, etc). 
