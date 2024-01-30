@@ -13,7 +13,7 @@
 
 <meta name="date" content="2024-01-25" />
 
-<title>Barajas_Lab 3</title>
+<title>Lab 3 - Abalone Age</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -350,7 +350,7 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">Barajas_Lab 3</h1>
+<h1 class="title toc-ignore">Lab 3 - Abalone Age</h1>
 <h4 class="author">Briana Barajas</h4>
 <h4 class="date">2024-01-25</h4>
 
@@ -372,18 +372,12 @@ age.</p>
 <div id="data-exploration" class="section level3">
 <h3>Data Exploration</h3>
 <p>Pull the abalone data from Github and take a look at it.</p>
-<pre class="r"><code>abdat&lt;- read_csv(file = &quot;https://raw.githubusercontent.com/MaRo406/eds-232-machine-learning/main/data/abalone-data.csv&quot;) %&gt;% 
-  janitor::clean_names()</code></pre>
-<pre><code>## New names:
-## Rows: 4177 Columns: 10
-## ── Column specification
-## ──────────────────────────────────────────────────────── Delimiter: &quot;,&quot; chr
-## (1): Sex dbl (9): ...1, Length, Diameter, Height, Whole_weight, Shucked_weight,
-## Visce...
-## ℹ Use `spec()` to retrieve the full column specification for this data. ℹ
-## Specify the column types or set `show_col_types = FALSE` to quiet this message.
-## • `` -&gt; `...1`</code></pre>
-<pre class="r"><code>glimpse(abdat)</code></pre>
+<pre class="r"><code># read in data
+abdat&lt;- read_csv(file = &quot;https://raw.githubusercontent.com/MaRo406/eds-232-machine-learning/main/data/abalone-data.csv&quot;) %&gt;% 
+  janitor::clean_names()
+
+# View data summary 
+glimpse(abdat)</code></pre>
 <pre><code>## Rows: 4,177
 ## Columns: 10
 ## $ x1             &lt;dbl&gt; 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, …
@@ -406,7 +400,7 @@ and test sets. Use a 70/30 training/test split.</li>
 <pre class="r"><code># set seed for reproducability
 set.seed(123)
 
-# split data
+# split data 70/30 
 split &lt;- initial_split(abdat, prop = 0.7)
 ab_train &lt;- training(split)
 ab_test &lt;- testing(split)</code></pre>

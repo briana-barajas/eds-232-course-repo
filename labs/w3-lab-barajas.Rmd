@@ -1,5 +1,5 @@
 ---
-title: "Barajas_Lab 3"
+title: "Lab 3 - Abalone Age"
 author: "Briana Barajas"
 date: 2024-01-25
 output: html_document
@@ -22,9 +22,12 @@ The data set provided includes variables related to the sex, physical dimensions
 
 Pull the abalone data from Github and take a look at it.
 
-```{r data}
+```{r data, warning=FALSE, message=FALSE}
+# read in data
 abdat<- read_csv(file = "https://raw.githubusercontent.com/MaRo406/eds-232-machine-learning/main/data/abalone-data.csv") %>% 
   janitor::clean_names()
+
+# View data summary 
 glimpse(abdat)
 
 ```
@@ -36,7 +39,7 @@ glimpse(abdat)
 # set seed for reproducability
 set.seed(123)
 
-# split data
+# split data 70/30 
 split <- initial_split(abdat, prop = 0.7)
 ab_train <- training(split)
 ab_test <- testing(split)
