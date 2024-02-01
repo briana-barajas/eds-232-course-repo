@@ -1,5 +1,5 @@
 ---
-title: "Lab4"
+title: "Lab 4"
 author: "Briana Barajas"
 date: "`r Sys.Date()`"
 output: html_document
@@ -12,6 +12,7 @@ library(skimr)
 library(tidymodels)
 library(caret)
 library(recipes)
+library(corrplot)
 ```
 
 ## Lab 4: Fire and Tree Mortality
