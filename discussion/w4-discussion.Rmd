@@ -1,0 +1,188 @@
+---
+title: "Discussion Week 4"
+author: "Briana Barajas"
+date: 2024-02-01
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(tidymodels)
+library(spData)
+library(ggpmisc)
+```
+
+## Preparation
+__Goal:__ Predict the percentage of areas given a D grade within each state, based on other variables in the dataframe. 
+```{r, message=FALSE, warning=FALSE, results='hide'}
+# set seed
+set.seed(5)
+
+# read in redlining data
+redlining = read_csv(here::here("discussion", "data", "w4-redlining.csv")) %>% 
+  
+  # join redlining data to us-state-df with population/income info
+  left_join(us_states_df %>% rename(name = state)) %>% 
+  
+  # clean column names, lower snake case
+  janitor::clean_names()
+```
+
+### Exploratory Data Viz
+
+```{r}
+gridExtra::grid.arrange(
+  (
+ggplot(redlining) +
+  geom_point(aes(x = poverty_level_10, 
+                 y = percent))), # end poverty level plot
+
+(ggplot(redlining) +
+  geom_point(aes(x = median_income_10, 
+                 y = percent))), # end income plot
+
+(ggplot(redlining) +
+   geom_boxplot(aes(x = region,
+                  y = percent))), # end region plot
+
+(ggplot(redlining) +
+   geom_point(aes(x = area,
+                  y = percent))), # end area plot
+ncol = 2
+) #end grid.arrange
+```
+
+## Data Splitting
+
+```{r}
+split <- initial_split(redlining, prop = 0.7)
+
+train <- training(split)
+test <- testing(split)
+
+# run cross validation/folds
+folds <- vfold_cv(train, 
+                  v = 5, # number of folds
+                  repeats = 2) # splits data into 2 sets of 5, run independently
+
+# view repeats/folds 
+View(folds)
+
+```
+
+### Recipe Specification
+
+```{r}
+recipe <- recipe(percent ~ region + area + total_pop_10 + median_income_10 + poverty_level_10, data = train) %>%
+  
+  # normalize all numeric predictors 
+  step_normalize(all_numeric_predictors()) %>% 
+  
+  # convert nominal predictors to numeric values
+  step_integer(all_nominal_predictors()) %>% 
+  
+  # for predictor variables, create interactions w/in recipes
+  step_interact(terms = ~total_pop_10:median_income_10) %>%
+  step_interact(terms = ~total_pop_10:poverty_level_10) %>% 
+  step_interact(terms = ~poverty_level_10:median_income_10) 
+```
+
+### Model: Tuned Linear Regression
+
+```{r}
+# ridge regression (?)
+lm_model <- linear_reg(penalty = tune(), #automatically tune for cross-validation
+                       mixture = tune()) %>%
+  set_engine("glmnet") %>% 
+  set_mode("regression") 
+
+lm_model
+```
+
+Tune is specifying/telling the model that we're tuning to certain parameters. Without `tune()` the model is incomplete & you'd recieve an error on the next step.
+
+```{r}
+lm_wflw <- workflow() %>% 
+  add_model(lm_model) %>% 
+  add_recipe(recipe)
+
+# lm_wflw
+```
+
+```{r}
+?tune_grid
+```
+
+```{r, eval = FALSE}
+# cross validation for tuning
+lm_cv_tune <- lm_wflw %>% 
+  tune_grid(resamples = folds,
+            grid = 5) #specify lambdas (number of parameters) being tested
+```
+
+```{r}
+?collect_metrics #from tune
+```
+
+```{r}
+autoplot(lm_cv_tune) +
+  theme_bw() +
+  labs(x = "Parameter Value",
+       y = "Performance Metric")
+```
+__Interpretation:__  The x-asis is the number of the parameter, where the left is amount of regularization and the right two plots are proportion of lasso penalty. To pick the best model, we'd select the model with lowest rmse, and highest (?) rsq. However, rmse and rsq are not always in agreement.
+
+Review if needed, this discussion uses the `tune` package, so the names/orders of things are different than the packages using during class (`caret` and `glmnet`).
+
+#### Finalize workflow
+
+```{r}
+?show_best
+?finalize_workflow()
+```
+
+```{r}
+lm_best <- show_best(lm_cv_tune, n = 1, metric = "rmse")
+lm_best
+
+lm_final <- finalize_workflow(lm_wflw, select_best(lm_cv_tune, metric = 'rmse'))
+lm_final
+```
+
+### Model Fitting
+
+```{r, include=FALSE}
+ # fit the data to the training data
+lm_fit <- fit(lm_final, train)
+```
+
+```{r, include=FALSE}
+train_predict <- predict(lm_fit, train) %>% 
+  bind_cols(train)
+
+test_predict <- predict(lm_fit, test) %>% 
+  bind_cols(test)
+```
+
+```{r}
+train_metrics <- train_predict %>% 
+  metrics(percent, .pred)
+train_metrics
+
+test_metrics <- test_predict %>% 
+  metrics(percent, .pred)
+test_metrics
+```
+
+### Visualization
+
+```{r}
+ggplot(test_predict, aes(x = percent,
+                         y = .pred)) +
+  geom_point() +
+  stat_poly_line() +
+  stat_poly_eq(use_label("eq")) +
+  stat_poly_eq(label.y = 0.9)
+```
+
