@@ -1,0 +1,173 @@
+---
+title: "Lab 5"
+author: "Briana Barajas"
+date: "2023-02-07"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+---
+
+This week's lab is a musical lab. You'll be requesting data from the Spotify API and using it to build k-nearest neighbor and decision tree models.
+
+In order to use the Spotify API you must have a Spotify account. If you don't have one, sign up for a free one here: <https://www.spotify.com/us/signup>
+
+Once you have an account, go to Spotify for developers (<https://developer.spotify.com/>) and log in. Click the green "Create a Client ID" button to fill out the form to create an app create an app so you can access the API.
+
+On your developer dashboard page, click on the new app you just created. Go to Settings -\> Basic Information and you will find your Client ID . Click "View client secret" to access your secondary Client ID. Scroll down to Redirect URIs and enter: <http://localhost:1410/>
+
+You have two options for completing this lab.
+
+**Option 1**: **Classify by users**. Build models that predict whether a given song will be in your collection vs. a partner in class. This requires that you were already a Spotify user so you have enough data to work with. You will download your data from the Spotify API and then exchange with another member of class.
+
+```{r}
+library(spotifyr) #API interaction
+library(tidyverse)
+library(tidymodels)
+library(here)
+```
+
+Client ID and Client Secret are required to create and access token that is required to interact with the API. You can set them as system values so we don't have to do provide them each time.
+
+```{r access_API}
+
+Sys.setenv(SPOTIFY_CLIENT_ID = '7bb9be2a18d640a6ac7972f39e8efc63') 
+Sys.setenv(SPOTIFY_CLIENT_SECRET = 'd509f9cbeb8646bfa5ae41fce2f4056f')
+
+authorization_code <- get_spotify_authorization_code(scope = scopes()[c(1:19)]) #sets an authorization code that you'll need to provide for certain get_ functions via 
+
+
+access_token <- get_spotify_access_token() #takes ID and SECRET, sends to Spotify and receives an access token
+```
+
+**Option 1: Data Preparation**
+
+You can use `get_my_saved_tracks()` to request all your liked tracks. It would be good if you had at least 150-200 liked tracks so the model has enough data to work with. If you don't have enough liked tracks, you can instead use `get_my_recently_played()`, and in that case grab at least 500 recently played tracks if you can.
+
+The Spotify API returns a dataframe of tracks and associated attributes. However, it will only return up to 50 (or 20) tracks at a time, so you will have to make multiple requests. Use a function to combine all your requests in one call.
+
+```{r}
+top_tracks_fun <- function(code){
+
+  top_50 <- get_my_saved_tracks(limit = 50, offset = 0,
+                                authorization = code)
+  
+  top_100 <- get_my_saved_tracks(limit = 50, offset = 50,
+                                 authorization = code)
+  
+  top_150 <- get_my_saved_tracks(limit = 50, offset = 100,
+                                 authorization = code)
+  
+  top_200 <- get_my_saved_tracks(limit = 50, offset = 150,
+                                 authorization = code)
+  
+  top_250 <- get_my_saved_tracks(limit = 50, offset = 200,
+                                 authorization = code)
+  
+  top_300 <- get_my_saved_tracks(limit = 50, offset = 250,
+                                 authorization = code)
+  
+  top_350 <- get_my_saved_tracks(limit = 50, offset = 300,
+                                 authorization = code)
+  
+  top_400 <- get_my_saved_tracks(limit = 50, offset = 350,
+                                 authorization = code)
+  
+  top_450 <- get_my_saved_tracks(limit = 50, offset = 400,
+                                 authorization = code)
+  
+  top_500 <- get_my_saved_tracks(limit = 50, offset = 450,
+                                 authorization = code)
+  
+  rbind(top_50, top_100, top_150, top_200, top_250, top_300, top_350,
+        top_400, top_450, top_500)
+
+}
+
+my_tracks <- top_tracks_fun(code = authorization_code)
+
+```
+
+Once you have your tracks, familiarize yourself with this initial dataframe. You'll need to request some additional information for the analysis. If you give the API a list of track IDs using `get_track_audio_features()`, it will return an audio features dataframe of all the tracks and some attributes of them.
+
+These track audio features are the predictors we are interested in, but this dataframe doesn't have the actual names of the tracks. Append the 'track.name' column from your favorite tracks database.
+
+```{r}
+# create function that gets audio features for 500 liked songs
+audio_features_fun <- function(row_seq){
+  
+  # get audio features for top 100 songs
+  top_100 <- get_track_audio_features(my_tracks[c(1:row_seq), 8])
+  
+  top_200 <-  get_track_audio_features(my_tracks[c(101:200), 8])
+  
+  top_300 <- get_track_audio_features(my_tracks[c(201:300), 8])
+  
+  top_400 <- get_track_audio_features(my_tracks[c(301:400), 8])
+  
+  top_500 <- get_track_audio_features(my_tracks[c(401:500), 8])
+  
+  rbind(top_100, top_200, top_300, top_400, top_500)
+  
+}
+
+# create df using function
+my_tracks_audio <- audio_features_fun(row_seq = 100)
+
+# isolate columns from my_tracks to join to audio tracks
+my_tracks <- my_tracks %>% 
+  select(track.id, track.name) %>% 
+  rename(id = track.id)
+
+# join dataframes so audio data has list of track.name
+my_tracks_audio <- left_join(my_tracks_audio, my_tracks, by = "id")
+```
+
+
+Find a class mate whose data you would like to use. Add your partner's data to your dataset. Create a new column that will contain the outcome variable that you will try to predict. This variable should contain two values that represent if the track came from your data set or your partner's.
+
+```{r}
+# save my data to send to partner (commented out for knitting)
+#write_csv(my_tracks_audio, file = here("labs", "data", "briana_tracks_audio.csv"))
+
+# load partners data
+rosemary_tracks_audio <- read_csv(here("labs", "data", "rosemary_tracks_audio.csv"))
+```
+
+
+###Data Exploration (both options)
+
+Let's take a look at your data. Do some exploratory summary stats and visualization.
+
+For example: What are the most danceable tracks in your dataset? What are some differences in the data between users (Option 1) or genres (Option 2)?
+
+### **Modeling**
+
+Create competing models that predict whether a track belongs to:
+
+Option 1. you or your partner's collection
+
+Option 2. genre 1 or genre 2
+
+You will eventually create four final candidate models:
+
+1.  k-nearest neighbor (Week 5)
+2.  decision tree (Week 5)
+3.  bagged tree (Week 6)
+    -   bag_tree()
+    -   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here.
+4.  random forest (Week 6)
+    -   rand_forest()
+    -   m_try() is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
+
+Go through the modeling process for each model:
+
+Preprocessing. You can use the same recipe for all the models you create.
+
+Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
+
+Tuning. Find the best values for each hyperparameter (within a reasonable range).
+
+Compare the performance of the four final models you have created.
+
+Use appropriate performance evaluation metric(s) for this classification task. A table would be a good way to display your comparison. Use at least one visualization illustrating your model results.
