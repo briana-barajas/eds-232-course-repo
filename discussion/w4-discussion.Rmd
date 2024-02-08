@@ -184,5 +184,5 @@ ggplot(test_predict, aes(x = percent,
   stat_poly_line() +
   stat_poly_eq(use_label("eq")) +
   stat_poly_eq(label.y = 0.9)
-```
+ f```
 

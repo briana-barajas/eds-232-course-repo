@@ -2,11 +2,15 @@
 title: "Lab 4"
 author: "Briana Barajas"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
 library(tidyverse)
 library(skimr)
 library(tidymodels)
@@ -178,27 +182,116 @@ __ANS:__ The p-values for all three variables of interest are very small (close 
 
 Now we want to estimate our model's generalizability using resampling.
 
-> Question 9: Use cross validation to assess model accuracy. Use caret::train() to fit four 10-fold cross-validated models (cv_model1, cv_model2, cv_model3, cv_model4) that correspond to each of the four models we've fit so far: three simple logistic regression models corresponding to each of the three key predictors (CVS_percent, DBH_cm, BCHM_m) and a multiple logistic regression model that combines all three predictors.
+> Question 9: Use cross validation to assess model accuracy. Use `caret::train()` to fit four 10-fold cross-validated models (cv_model1, cv_model2, cv_model3, cv_model4) that correspond to each of the four models we've fit so far: three simple logistic regression models corresponding to each of the three key predictors (CVS_percent, DBH_cm, BCHM_m) and a multiple logistic regression model that combines all three predictors.
 
 ```{r}
+# convert yr1status to a factor
+trees_bake_fct <- trees_bake %>%
+  mutate(yr1status = as_factor(yr1status))
+
+# split data
+trees_split_fct <- initial_split(trees_bake_fct, prop = 0.7)
+trees_train_fct <- training(trees_split_fct)
+trees_test_fct <- testing(trees_split_fct)
+
+# run model yr1status + dhb_cm
+cv_model1 <- train(
+  yr1status ~ dbh_cm,
+  data = trees_train_fct,
+  method = "glm",
+  family = "binomial",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+# run model yr1status + cvs_percent
+cv_model2 <- train(
+  yr1status ~ cvs_percent,
+  data = trees_train_fct,
+  method = "glm",
+  family = "binomial",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+# run model yr1status + bchm_m
+cv_model3 <- train(
+  yr1status ~ bchm_m,
+  data = trees_train_fct,
+  method = "glm",
+  family = "binomial",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+# run multiple regression
+cv_model4 <- train(
+  yr1status ~ dbh_cm + cvs_percent + bchm_m,
+  data = trees_train_fct,
+  method = "glm",
+  family = "binomial",
+  trControl = trainControl(method = "cv", number = 10)
+)
 
 ```
 
->
+
 > Question 10: Use caret::resamples() to extract then compare the classification accuracy for each model. (Hint: resamples() wont give you what you need unless you convert the outcome variable to factor form). Which model has the highest accuracy?
 
 Let's move forward with this single most accurate model.
 
+```{r}
+summary(
+  resamples(
+    list(
+      model1 = cv_model1,
+      model2 = cv_model2,
+      model3 = cv_model3,
+      model4 = cv_model4
+    )
+  )
+)$statistics$Accuracy
+```
+
+__ANS:__ The mean model accuracy is calculated by taking the mean accuracy of all 10 folds. The `cv_model4`, which is the multiple linear regression, has the highest accuracy of all the models tested.
+
 > Question 11: Compute the confusion matrix and overall fraction of correct predictions by the model.
->
+
+```{r}
+# predict class for the model with the highest accuracy
+pred_class_trees <- predict(cv_model4, trees_train_fct)
+
+# create confusion matrix
+confusionMatrix(
+  data = relevel(pred_class_trees, ref = "1" ), 
+  reference = relevel(trees_train_fct$yr1status, ref = "1")
+)
+```
+
 > Question 12: Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
->
+
+__ANS:__ The confusion matrix displays information on the individuals that were in the data that were guessed correctly and incorrectly. The intersect between 1x1 is 6300, meaning that there were 6300 trees that were predicted to be dead and were actually dead. These values are the true positives, the true negatives would be the 16504 that were predicted to be alive, and were in fact alive. The remaining values (1595 and 847) represent the false positive and negatives. These were individual trees that the model guessed incorrectly. 
+
 > Question 13: What is the overall accuracy of the model? How is this calculated?
+
+__ANS:__ When assessing accuracy, it can be useful to compare the accuracy to the "no information rate." This rate demonstrates how accurate the model would be if it predicted that every tree survived (`yr1status` = 0). To assess the overall accuracy, the no information rate is compared to the baseline accuracy of 0.9. Once the no information rate is taken into account, the balanced accuracy for the model is 0.89 (slightly lower than before).
 
 ### Test Final Model
 
 Alright, now we'll take our most accurate model and make predictions on some unseen data (the test data).
 
 > Question 14: Now that we have identified our best model, evaluate it by running a prediction on the test data, trees_test.
->
+
+```{r}
+# predict using the multiple regression model + testing data
+predict_trees_test <- predict(cv_model4, trees_test_fct)
+
+# create confusion matrix for test
+confusionMatrix(
+  data = relevel(predict_trees_test, ref = "1"),
+  reference = relevel(trees_test_fct$yr1status, ref = "1")
+)
+```
+
+
 > Question 15: How does the accuracy of this final model on the test data compare to its cross validation accuracy? Do you find this to be surprising? Why or why not?
+
+__ANS:__ The accuracy of the final model produces roughly the same accuracy as it did for the cross-validation using the training data. While the accuracy is lower on the test data, it is not as drastic as I would have expected. I would like to better asses how the no information rate supports or increases the model's accuracy.
+
