@@ -25,6 +25,8 @@ library(spotifyr) #API interaction
 library(tidyverse)
 library(tidymodels)
 library(here)
+library(kableExtra)
+library(skimr)
 ```
 
 Client ID and Client Secret are required to create and access token that is required to interact with the API. You can set them as system values so we don't have to do provide them each time.
@@ -140,6 +142,29 @@ rosemary_tracks_audio <- read_csv(here("labs", "data", "rosemary_tracks_audio.cs
 Let's take a look at your data. Do some exploratory summary stats and visualization.
 
 For example: What are the most danceable tracks in your dataset? What are some differences in the data between users (Option 1) or genres (Option 2)?
+
+```{r}
+## ..................summary stats...................
+# my data
+my_tracks_audio %>% 
+summarise(mean_dance = mean(danceability),
+          mean_energy = mean(energy),
+          mean_loudness = mean(loudness),
+          mean_acoustic = mean(acousticness),
+          mean_tempo = mean(tempo)) %>% 
+  kbl(caption = "My Songs") %>% 
+  kable_minimal()
+
+# rosemary data
+
+## ..................visualizations...................
+# my data
+#skim(my_tracks_audio)
+
+# rosemary data
+
+```
+
 
 ### **Modeling**
 
