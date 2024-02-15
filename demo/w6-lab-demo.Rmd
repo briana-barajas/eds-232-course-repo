@@ -1,0 +1,174 @@
+---
+title: "Lab5_Demo2"
+author: "Briana Barajas"
+date: "2023-02-15"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(vip) #variable importance
+library(here)
+```
+## R
+```{r}
+kaggle_dat <- read_csv(here("demo","data","w6-genres_v2.csv"))
+unique(kaggle_dat$genre)
+table(kaggle_dat$genre)
+
+#Removing inappropriate columns and selecting trap and Hiphop as the two genres here and making case consistent
+
+genre_dat <- kaggle_dat %>%
+  # removing cols not needed for synthesis
+  select(-c(type, uri, track_href, analysis_url, `Unnamed: 0`, title, tempo, id, song_name)) %>%
+  
+  # select 2 genres
+  filter(genre == "Hiphop"|genre == "Rap") %>%
+  
+  # standardize names
+  mutate(genre = str_replace(genre, "Hiphop", "hiphop")) %>%
+  mutate(genre = str_replace(genre, "Rap", "rap")) %>%
+  mutate(genre = as.factor(genre))
+```
+
+```{r}
+# set seed for reproducability
+set.seed(125)
+
+##split the data (default 75-25)
+genre_split <- initial_split(genre_dat)
+
+# separate training and testing data
+genre_train <- training(genre_split)
+genre_test <- testing(genre_split)
+```
+
+```{r recipe}
+#Preprocess the data
+genre_rec <- recipe(genre~., data = genre_train) %>% 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+  
+  # scale and center (?), turning all variables to numeric
+  step_normalize(all_numeric())
+  
+```
+
+Set up a decision tree specification. Note: the cost_complexity parameter is a pruning penalty parameter that controls how much we penalize the number of terminal nodes in the tree.  It's conceptually similar to lambda from regularized regression.
+
+```{r tree_specification}
+tree_spec_fixed <- decision_tree(
+  cost_complexity = 0.1, #idk
+  tree_depth = 4, #number of nodes
+  min_n = 11 #tree must consider 11 out of oue 12 vars before deciding how to split
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+```
+
+But, as usual, we don't want just any old values for our hyperparameters, we want optimal values.
+```{r}
+#new spec, tell the model that we are tuning hyperparams
+tree_spec_tune <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+tree_grid <- grid_regular(cost_complexity(), tree_depth(),
+                          min_n(), levels = 5)
+tree_grid
+```
+
+```{r workflow_tree}
+wf_tree_tune <- workflow() %>% 
+  add_recipe(genre_rec) %>% 
+  add_model(tree_spec_tune)
+```
+
+```{r resampling}
+#set up k-fold cv. This can be used for all the algorithms
+genre_cv <- genre_train %>% 
+  vfold_cv(v = 10) #10 cross validation folds
+
+genre_cv
+```
+
+```{r}
+doParallel::registerDoParallel() #build trees in parallel
+#200s
+
+system.time(
+  
+  tree_rs <- tune_grid(
+    wf_tree_tune,
+    resamples = genre_cv,
+    grid = tree_grid,
+    metrics = metric_set(accuracy)) #END tune_grid
+  
+) #END system.time
+
+tree_rs
+```
+Use autoplot() to examine how different parameter configurations relate to accuracy 
+```{r}
+# examine accuracy, which we selected as the method in previous step
+autoplot(tree_rs) + theme_minimal() + scale_color_manual(values = c("maroon", "orchid2", "red2", "midnightblue", "magenta3"))
+```
+
+```{r select_hyperparam}
+show_best(tree_rs)
+select_best(tree_rs)
+```
+
+We can finalize the model specification where we have replaced the tune functions with optimized values.
+
+```{r final_tree_spec}
+# select best using func, which is more accurate than visually inspecting the plot
+final_tree <- finalize_workflow(wf_tree_tune, select_best(tree_rs))
+
+final_tree
+```
+
+This model has not been fit yet though.
+
+```{r final_tree_fit}
+#similar functions here.
+final_tree_fit <- fit(final_tree, data = genre_train)
+
+# last_fit() fits on the training data, then evaluates on the test data
+# combines combines fit and predict which is why it takes split data
+final_tree_result <- last_fit(final_tree_fit, genre_split)
+
+# final_tree_result is a table of tables, view individual tables
+final_tree_result$.predictions # predicted values
+final_tree_result$.metrics #accuracy and AUC 
+
+```
+
+#Visualize variable importance
+```{r tree_vip}
+## ....... visualize importance ......
+final_tree_fit %>% vip(geom = "col", 
+                       aesthetics = list(fill = "navy"))
+
+## ....... compare variables more directly ......
+
+# convert results to df
+predict_data <- as.data.frame(final_tree_result$.predictions) %>% 
+  bind_cols(genre_test)
+
+# plot to compare variables
+predict_data %>% 
+  ggplot(aes(y = duration_ms, x = genre...5)) +
+  geom_boxplot()
+
+```
+
+Importance variable looks at how important each variable is for the prediction. Not all variables contribute equally, since one variable might have more distinct values between different classes.
+
