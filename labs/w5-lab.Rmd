@@ -50,7 +50,7 @@ The Spotify API returns a dataframe of tracks and associated attributes. However
 
 ```{r}
 top_tracks_fun <- function(code){
-
+  
   top_50 <- get_my_saved_tracks(limit = 50, offset = 0,
                                 authorization = code)
   
@@ -83,7 +83,7 @@ top_tracks_fun <- function(code){
   
   rbind(top_50, top_100, top_150, top_200, top_250, top_300, top_350,
         top_400, top_450, top_500)
-
+  
 }
 
 my_tracks <- top_tracks_fun(code = authorization_code)
@@ -129,11 +129,27 @@ my_tracks_audio <- left_join(my_tracks_audio, my_tracks, by = "id")
 Find a class mate whose data you would like to use. Add your partner's data to your dataset. Create a new column that will contain the outcome variable that you will try to predict. This variable should contain two values that represent if the track came from your data set or your partner's.
 
 ```{r}
+## ..................save and send data...................
 # save my data to send to partner (commented out for knitting)
 #write_csv(my_tracks_audio, file = here("labs", "data", "briana_tracks_audio.csv"))
 
 # load partners data
 rosemary_tracks_audio <- read_csv(here("labs", "data", "rosemary_tracks_audio.csv"))
+
+## ..................combine data...................
+# create cols unique to myself and partner
+my_tracks_audio$partner <- "Briana"
+rosemary_tracks_audio$partner <- "Rosemary"
+
+# bind and clean data frames
+compare_track_audio <- rbind(my_tracks_audio, rosemary_tracks_audio) %>% 
+  select(-c(type, id, uri, track_href, analysis_url, track.name)) %>% 
+  mutate(time_signiature = as.factor(time_signature),
+         partner = as.factor(partner),
+         mode = as.factor(mode),
+         key = as.factor(key))
+
+rm(top_tracks_fun, access_token, audio_features_fun, my_tracks, my_tracks_audio, rosemary_tracks_audio)
 ```
 
 
@@ -146,22 +162,22 @@ For example: What are the most danceable tracks in your dataset? What are some d
 ```{r}
 ## ..................summary stats...................
 # my data
-my_tracks_audio %>% 
-summarise(mean_dance = mean(danceability),
-          mean_energy = mean(energy),
-          mean_loudness = mean(loudness),
-          mean_acoustic = mean(acousticness),
-          mean_tempo = mean(tempo)) %>% 
-  kbl(caption = "My Songs") %>% 
+compare_track_audio %>% 
+  group_by(partner) %>% 
+  summarise(mean_dance = mean(danceability),
+            mean_energy = mean(energy),
+            mean_loudness = mean(loudness),
+            mean_acoustic = mean(acousticness),
+            mean_tempo = mean(tempo)) %>% 
+  kbl(caption = "Summary Statistics") %>% 
   kable_minimal()
-
-# rosemary data
 
 ## ..................visualizations...................
 # my data
-#skim(my_tracks_audio)
+skim(my_tracks_audio)
 
 # rosemary data
+skim(rosemary_tracks_audio)
 
 ```
 
@@ -172,24 +188,59 @@ Create competing models that predict whether a track belongs to:
 
 Option 1. you or your partner's collection
 
-Option 2. genre 1 or genre 2
-
 You will eventually create four final candidate models:
 
 1.  k-nearest neighbor (Week 5)
 2.  decision tree (Week 5)
 3.  bagged tree (Week 6)
-    -   bag_tree()
-    -   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here.
+-   bag_tree()
+-   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here.
 4.  random forest (Week 6)
-    -   rand_forest()
-    -   m_try() is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
+-   rand_forest()
+-   m_try() is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
 
 Go through the modeling process for each model:
 
 Preprocessing. You can use the same recipe for all the models you create.
+```{r preprocessing}
+# set seed and split data
+set.seed(125)
+
+# split data
+audio_split <- initial_split(compare_track_audio, prop = 0.7)
+audio_train <- training(audio_split)
+audio_test <- testing(audio_split)
+
+## ==================================
+##      1. KNN Pre-processing    ----
+## ==================================
+# create KNN recipe
+knn_rec <- recipe(partner~., data = audio_train) %>% 
+  step_dummy(all_nominal(), -all_outcomes(),
+             one_hot = TRUE) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  prep()
+
+# apply recipe
+knn_bake <- bake(knn_rec, audio_train)
+
+# specify KNN as the model
+knn_spec <- nearest_neighbor(neighbors = 5) %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+knn_fit <- knn_spec %>% 
+  fit(partner~ ., data = audio_train)
+```
+
 
 Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
+
+```{r}
+## ==================================
+##         1. KNN Resample       ----
+## ==================================
+```
+
 
 Tuning. Find the best values for each hyperparameter (within a reasonable range).
 
