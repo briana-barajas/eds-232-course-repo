@@ -20,13 +20,19 @@ You have two options for completing this lab.
 
 **Option 1**: **Classify by users**. Build models that predict whether a given song will be in your collection vs. a partner in class. This requires that you were already a Spotify user so you have enough data to work with. You will download your data from the Spotify API and then exchange with another member of class.
 
+```{r, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
 ```{r}
 library(spotifyr) #API interaction
 library(tidyverse)
 library(tidymodels)
 library(here)
-library(kableExtra)
-library(skimr)
+
+library(kableExtra) # tables and plots
+library(gridExtra)
+
 ```
 
 Client ID and Client Secret are required to create and access token that is required to interact with the API. You can set them as system values so we don't have to do provide them each time.
@@ -49,6 +55,7 @@ You can use `get_my_saved_tracks()` to request all your liked tracks. It would b
 The Spotify API returns a dataframe of tracks and associated attributes. However, it will only return up to 50 (or 20) tracks at a time, so you will have to make multiple requests. Use a function to combine all your requests in one call.
 
 ```{r}
+# function to get last 500 likes
 top_tracks_fun <- function(code){
   
   top_50 <- get_my_saved_tracks(limit = 50, offset = 0,
@@ -63,29 +70,30 @@ top_tracks_fun <- function(code){
   top_200 <- get_my_saved_tracks(limit = 50, offset = 150,
                                  authorization = code)
   
-  top_250 <- get_my_saved_tracks(limit = 50, offset = 200,
-                                 authorization = code)
+  # top_250 <- get_my_saved_tracks(limit = 50, offset = 200,
+  #                                authorization = code)
+  # 
+  # top_300 <- get_my_saved_tracks(limit = 50, offset = 250,
+  #                                authorization = code)
+  # 
+  # top_350 <- get_my_saved_tracks(limit = 50, offset = 300,
+  #                                authorization = code)
+  # 
+  # top_400 <- get_my_saved_tracks(limit = 50, offset = 350,
+  #                                authorization = code)
+  # 
+  # top_450 <- get_my_saved_tracks(limit = 50, offset = 400,
+  #                                authorization = code)
+  # 
+  # top_500 <- get_my_saved_tracks(limit = 50, offset = 450,
+  #                                authorization = code)
   
-  top_300 <- get_my_saved_tracks(limit = 50, offset = 250,
-                                 authorization = code)
-  
-  top_350 <- get_my_saved_tracks(limit = 50, offset = 300,
-                                 authorization = code)
-  
-  top_400 <- get_my_saved_tracks(limit = 50, offset = 350,
-                                 authorization = code)
-  
-  top_450 <- get_my_saved_tracks(limit = 50, offset = 400,
-                                 authorization = code)
-  
-  top_500 <- get_my_saved_tracks(limit = 50, offset = 450,
-                                 authorization = code)
-  
-  rbind(top_50, top_100, top_150, top_200, top_250, top_300, top_350,
-        top_400, top_450, top_500)
+  rbind(top_50, top_100, top_150, top_200)
+  # ,top_250, top_300, top_350, top_400, top_450, top_500
   
 }
 
+# use fun to store my liked song data
 my_tracks <- top_tracks_fun(code = authorization_code)
 
 ```
@@ -103,13 +111,14 @@ audio_features_fun <- function(row_seq){
   
   top_200 <-  get_track_audio_features(my_tracks[c(101:200), 8])
   
-  top_300 <- get_track_audio_features(my_tracks[c(201:300), 8])
+  # top_300 <- get_track_audio_features(my_tracks[c(201:300), 8])
+  # 
+  # top_400 <- get_track_audio_features(my_tracks[c(301:400), 8])
+  # 
+  # top_500 <- get_track_audio_features(my_tracks[c(401:500), 8])
   
-  top_400 <- get_track_audio_features(my_tracks[c(301:400), 8])
-  
-  top_500 <- get_track_audio_features(my_tracks[c(401:500), 8])
-  
-  rbind(top_100, top_200, top_300, top_400, top_500)
+  rbind(top_100, top_200)
+  # , top_300, top_400, top_500
   
 }
 
@@ -124,7 +133,6 @@ my_tracks <- my_tracks %>%
 # join dataframes so audio data has list of track.name
 my_tracks_audio <- left_join(my_tracks_audio, my_tracks, by = "id")
 ```
-
 
 Find a class mate whose data you would like to use. Add your partner's data to your dataset. Create a new column that will contain the outcome variable that you will try to predict. This variable should contain two values that represent if the track came from your data set or your partner's.
 
@@ -144,7 +152,7 @@ rosemary_tracks_audio$partner <- "Rosemary"
 # bind and clean data frames
 compare_track_audio <- rbind(my_tracks_audio, rosemary_tracks_audio) %>% 
   select(-c(type, id, uri, track_href, analysis_url, track.name)) %>% 
-  mutate(time_signiature = as.factor(time_signature),
+  mutate(time_signature = as.factor(time_signature),
          partner = as.factor(partner),
          mode = as.factor(mode),
          key = as.factor(key))
@@ -152,35 +160,51 @@ compare_track_audio <- rbind(my_tracks_audio, rosemary_tracks_audio) %>%
 rm(top_tracks_fun, access_token, audio_features_fun, my_tracks, my_tracks_audio, rosemary_tracks_audio)
 ```
 
-
-###Data Exploration (both options)
+### Data Exploration
 
 Let's take a look at your data. Do some exploratory summary stats and visualization.
 
 For example: What are the most danceable tracks in your dataset? What are some differences in the data between users (Option 1) or genres (Option 2)?
 
 ```{r}
-## ..................summary stats...................
-# my data
+# create table of summary statistics for some variables
 compare_track_audio %>% 
   group_by(partner) %>% 
   summarise(mean_dance = mean(danceability),
             mean_energy = mean(energy),
             mean_loudness = mean(loudness),
-            mean_acoustic = mean(acousticness),
-            mean_tempo = mean(tempo)) %>% 
+            max_loudness = max(loudness),
+            min_acoustic = min(acousticness)) %>% 
   kbl(caption = "Summary Statistics") %>% 
   kable_minimal()
 
-## ..................visualizations...................
-# my data
-skim(my_tracks_audio)
+# visualize some of these differences
+grid.arrange(
+  
+(compare_track_audio %>% 
+  filter(key %in% c("4", "5", "6", "7", "8", "9", "10")) %>%
+  ggplot(aes(x = key, fill = partner)) +
+  geom_bar(stat = "count", position = "dodge") +
+  theme_minimal() +
+  scale_fill_manual(values = c("lightskyblue", "palevioletred")) +
+  labs(x = "Key", y = "Count", fill = "Partner")),
 
-# rosemary data
-skim(rosemary_tracks_audio)
+(compare_track_audio %>% 
+  ggplot(aes(x = duration_ms, fill = partner)) +
+  geom_histogram(alpha = 0.6, position = "identity") +
+  theme_minimal() +
+  scale_fill_manual(values = c("lightskyblue", "palevioletred")) +
+  labs(x = "Duration (ms)", y = "Count", fill = "Partner")),
+
+ncol = 1)
+
+# # my data
+# skim(my_tracks_audio)
+# 
+# # rosemary data
+# skim(rosemary_tracks_audio)
 
 ```
-
 
 ### **Modeling**
 
@@ -193,15 +217,24 @@ You will eventually create four final candidate models:
 1.  k-nearest neighbor (Week 5)
 2.  decision tree (Week 5)
 3.  bagged tree (Week 6)
+
 -   bag_tree()
--   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here.
+
+-   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here. (**NOTE**: Will use this function in
+
+    `min_n = tune ()), %>% set_engine("rpart", times=50) %>% set_mode("classification"`
+
+    do NOT set the mode within the `bag_trees()` function, any extra control variables can go within `set_engine()`). There are extra variables from the model function documentation that won't appear in the documentation for `set_engine()` . **Chunk of code from answer key** 🐭
+
 4.  random forest (Week 6)
+
 -   rand_forest()
 -   m_try() is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
 
 Go through the modeling process for each model:
 
 Preprocessing. You can use the same recipe for all the models you create.
+
 ```{r preprocessing}
 # set seed and split data
 set.seed(125)
@@ -232,7 +265,6 @@ knn_fit <- knn_spec %>%
   fit(partner~ ., data = audio_train)
 ```
 
-
 Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
 
 ```{r}
@@ -240,7 +272,6 @@ Resampling. Make sure to use appropriate resampling to select the best version c
 ##         1. KNN Resample       ----
 ## ==================================
 ```
-
 
 Tuning. Find the best values for each hyperparameter (within a reasonable range).
 

@@ -81,8 +81,6 @@ cv_folds <- churn_train %>%
 
 ```
 
-We now have a recipe for processing the data, a model specification, and CV splits for the training data.
-
 Let's put it all together in a workflow.
 
 ```{r knn_workflow}
