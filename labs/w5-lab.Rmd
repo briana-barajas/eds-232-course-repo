@@ -70,26 +70,8 @@ top_tracks_fun <- function(code){
   top_200 <- get_my_saved_tracks(limit = 50, offset = 150,
                                  authorization = code)
   
-  # top_250 <- get_my_saved_tracks(limit = 50, offset = 200,
-  #                                authorization = code)
-  # 
-  # top_300 <- get_my_saved_tracks(limit = 50, offset = 250,
-  #                                authorization = code)
-  # 
-  # top_350 <- get_my_saved_tracks(limit = 50, offset = 300,
-  #                                authorization = code)
-  # 
-  # top_400 <- get_my_saved_tracks(limit = 50, offset = 350,
-  #                                authorization = code)
-  # 
-  # top_450 <- get_my_saved_tracks(limit = 50, offset = 400,
-  #                                authorization = code)
-  # 
-  # top_500 <- get_my_saved_tracks(limit = 50, offset = 450,
-  #                                authorization = code)
-  
   rbind(top_50, top_100, top_150, top_200)
-  # ,top_250, top_300, top_350, top_400, top_450, top_500
+  
   
 }
 
@@ -111,15 +93,7 @@ audio_features_fun <- function(row_seq){
   
   top_200 <-  get_track_audio_features(my_tracks[c(101:200), 8])
   
-  # top_300 <- get_track_audio_features(my_tracks[c(201:300), 8])
-  # 
-  # top_400 <- get_track_audio_features(my_tracks[c(301:400), 8])
-  # 
-  # top_500 <- get_track_audio_features(my_tracks[c(401:500), 8])
-  
   rbind(top_100, top_200)
-  # , top_300, top_400, top_500
-  
 }
 
 # create df using function
@@ -197,13 +171,6 @@ grid.arrange(
   labs(x = "Duration (ms)", y = "Count", fill = "Partner")),
 
 ncol = 1)
-
-# # my data
-# skim(my_tracks_audio)
-# 
-# # rosemary data
-# skim(rosemary_tracks_audio)
-
 ```
 
 ### **Modeling**
@@ -229,13 +196,16 @@ You will eventually create four final candidate models:
 4.  random forest (Week 6)
 
 -   rand_forest()
--   m_try() is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
+-   `m_try()` is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
 
 Go through the modeling process for each model:
 
 Preprocessing. You can use the same recipe for all the models you create.
 
 ```{r preprocessing}
+## ==================================
+##    Pre-processing ALL Models  ----
+## ==================================
 # set seed and split data
 set.seed(125)
 
@@ -244,23 +214,26 @@ audio_split <- initial_split(compare_track_audio, prop = 0.7)
 audio_train <- training(audio_split)
 audio_test <- testing(audio_split)
 
-## ==================================
-##      1. KNN Pre-processing    ----
-## ==================================
-# create KNN recipe
-knn_rec <- recipe(partner~., data = audio_train) %>% 
+# create recipe
+recip <- recipe(partner~., data = audio_train) %>% 
   step_dummy(all_nominal(), -all_outcomes(),
              one_hot = TRUE) %>% 
   step_normalize(all_numeric(), -all_outcomes()) %>% 
   prep()
 
 # apply recipe
-knn_bake <- bake(knn_rec, audio_train)
+bake <- bake(recip, audio_train)
+
+## ==================================
+##      1. KNN Pre-processing    ----
+## ==================================
 
 # specify KNN as the model
 knn_spec <- nearest_neighbor(neighbors = 5) %>% 
   set_engine("kknn") %>% 
   set_mode("classification")
+
+# fit knn model
 knn_fit <- knn_spec %>% 
   fit(partner~ ., data = audio_train)
 ```
@@ -268,12 +241,46 @@ knn_fit <- knn_spec %>%
 Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
 
 ```{r}
+set.seed(125)
+
 ## ==================================
 ##         1. KNN Resample       ----
 ## ==================================
+# set number of cross validation folds
+knn_cv_folds <- audio_train %>% 
+  vfold_cv(v = 10)
+
+# combine into workflow
+knn_workflow <- workflow() %>% 
+  add_model(knn_spec) %>%
+  add_recipe(recip)
+
+# fit resamples
+knn_resamples <- knn_workflow %>% 
+  fit_resamples(
+    resamples = knn_cv_folds,
+    control = control_resamples(save_pred = TRUE)
+  )
 ```
 
 Tuning. Find the best values for each hyperparameter (within a reasonable range).
+
+```{r}
+## ==================================
+##          1. KNN Tuning        ----
+## ==================================
+
+# define KNN model with tuning
+knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+# define new wf with tuned hyperparameters
+knn_tuned <- workflow() %>% 
+  add_model(knn_spec_tune) %>% 
+  add_recipe(recip)
+
+```
 
 Compare the performance of the four final models you have created.
 
