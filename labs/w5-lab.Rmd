@@ -24,7 +24,7 @@ You have two options for completing this lab.
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-```{r}
+```{r, results='hide'}
 library(spotifyr) #API interaction
 library(tidyverse)
 library(tidymodels)
@@ -38,7 +38,7 @@ library(gridExtra)
 
 Client ID and Client Secret are required to create and access token that is required to interact with the API. You can set them as system values so we don't have to do provide them each time.
 
-```{r access_API}
+```{r access_API, results='hide'}
 
 Sys.setenv(SPOTIFY_CLIENT_ID = '7bb9be2a18d640a6ac7972f39e8efc63') 
 Sys.setenv(SPOTIFY_CLIENT_SECRET = 'd509f9cbeb8646bfa5ae41fce2f4056f')
@@ -55,7 +55,7 @@ You can use `get_my_saved_tracks()` to request all your liked tracks. It would b
 
 The Spotify API returns a dataframe of tracks and associated attributes. However, it will only return up to 50 (or 20) tracks at a time, so you will have to make multiple requests. Use a function to combine all your requests in one call.
 
-```{r}
+```{r, results='hide'}
 # function to get last 200 likes
 top_tracks_fun <- function(code){
   
@@ -85,7 +85,7 @@ Once you have your tracks, familiarize yourself with this initial dataframe. You
 
 These track audio features are the predictors we are interested in, but this dataframe doesn't have the actual names of the tracks. Append the 'track.name' column from your favorite tracks database.
 
-```{r}
+```{r, results='hide'}
 # create function that gets audio features for 500 liked songs
 audio_features_fun <- function(row_seq){
   
@@ -111,7 +111,7 @@ my_tracks_audio <- left_join(my_tracks_audio, my_tracks, by = "id")
 
 Find a class mate whose data you would like to use. Add your partner's data to your dataset. Create a new column that will contain the outcome variable that you will try to predict. This variable should contain two values that represent if the track came from your data set or your partner's.
 
-```{r}
+```{r, results='hide'}
 ## ..................save and send data...................
 # save my data to send to partner (commented out for knitting)
 #write_csv(my_tracks_audio, file = here("labs", "data", "briana_tracks_audio.csv"))
@@ -182,6 +182,21 @@ Option 1. you or your partner's collection
 
 You will eventually create four final candidate models:
 
+1.  k-nearest neighbor (Week 5)
+2.  decision tree (Week 5)
+3.  bagged tree (Week 6)
+4.  random forest (Week 6)
+
+Go through the modeling process for each model:
+
+Preprocessing. You can use the same recipe for all the models you create.
+
+Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
+
+Tuning. Find the best values for each hyperparameter (within a reasonable range).
+
+### Pre-Processing
+
 ```{r}
 ## ==================================
 ##    Pre-processing ALL Models  ----
@@ -216,7 +231,6 @@ set.seed(125)
 ## ==================================
 
 # specify KNN as the model
-# Define nearest neighbor model (EMD)
 knn_spec <- nearest_neighbor(neighbors = 5) %>% 
   set_engine("kknn") %>% 
   set_mode("classification")
@@ -226,13 +240,11 @@ knn_spec <- nearest_neighbor(neighbors = 5) %>%
 ## ==================================
 
 # combine into workflow
-# Workflow (EMD)
 knn_workflow <- workflow() %>% 
   add_model(knn_spec) %>%
   add_recipe(recip)
 
 # fit resamples
-# Fit resamples (EMD)
 knn_resamples <- knn_workflow %>% 
   fit_resamples(
     resamples = cv_folds,
@@ -244,19 +256,16 @@ knn_resamples <- knn_workflow %>%
 ## ==================================
 
 # define KNN model with tuning
-# Tune the hyperparameters (EMD)
 knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% 
   set_mode("classification") %>% 
   set_engine("kknn")
 
 # define new wf with tuned hyperparameters
-# Workflow: Define new workflow (EMD)
 knn_wf_tuned <- workflow() %>% 
   add_model(knn_spec_tune) %>% 
   add_recipe(recip)
 
 # fit the workflow on our pre-defined folds hyperparameters
-# Fit workflow on predefined folds and hyperparameters (EMD)
 fit_knn_cv <- knn_wf_tuned %>% 
   tune_grid(
     cv_folds,
@@ -266,20 +275,16 @@ fit_knn_cv <- knn_wf_tuned %>%
 ##          KNN Final Model      ----
 ## ==================================
 
-# Workflow: Final (EMD)
+# final workflow
 knn_final_wf <- knn_wf_tuned %>% 
   finalize_workflow(select_best(fit_knn_cv, 
                                 metric = "accuracy"))
 
 # fit the final work flow
-# Fit: Final (EMD)
 knn_final_fit <- knn_final_wf %>% fit(data = audio_train)
 knn_pred <- knn_final_fit %>% predict(new_data = audio_test)
 
 knn_final_fit <- knn_final_fit %>% last_fit(audio_split)
-
-# View final results
-knn_final_fit %>% collect_metrics()
 
 # store metrics
 knn_metrics <- as.data.frame(knn_final_fit$.metrics)
@@ -354,7 +359,7 @@ dt_final_fit <- fit(final_dt, data = audio_train)
 dt_final_result <- last_fit(dt_final_fit, audio_split)
 
 # store final results as df
-dt_pred <- as.data.frame(final_dt_result$.predictions) %>% 
+dt_pred <- as.data.frame(dt_final_result$.predictions) %>% 
   bind_cols(audio_test)
 
 # store metrics
@@ -479,31 +484,52 @@ rf_metrics <- as.data.frame(accuracy(rf_pred, truth = partner, estimate = .pred_
 rm(rf_model, rf_workflow, rf_cv_tune, rf_best, rf_final, train_fit_rf)
 ```
 
-1.  k-nearest neighbor (Week 5)
-2.  decision tree (Week 5)
-3.  bagged tree (Week 6)
-
--   bag_tree()
-
--   Use the "times =" argument when setting the engine during model specification to specify the number of trees. The rule of thumb is that 50-500 trees is usually sufficient. The bottom of that range should be sufficient here. (**NOTE**: Will use this function in
-
-    `min_n = tune ()), %>% set_engine("rpart", times=50) %>% set_mode("classification"`
-
-    do NOT set the mode within the `bag_trees()` function, any extra control variables can go within `set_engine()`). There are extra variables from the model function documentation that won't appear in the documentation for `set_engine()` . **Chunk of code from answer key** 🐭
-
-4.  random forest (Week 6)
-
--   rand_forest()
--   `m_try()` is the new hyperparameter of interest for this type of model. Make sure to include it in your tuning process
-
-Go through the modeling process for each model:
-
-Preprocessing. You can use the same recipe for all the models you create.
-
-Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
-
-Tuning. Find the best values for each hyperparameter (within a reasonable range).
-
-Compare the performance of the four final models you have created.
+### Compare the performance of the four final models you have created.
 
 Use appropriate performance evaluation metric(s) for this classification task. A table would be a good way to display your comparison. Use at least one visualization illustrating your model results.
+
+**Model Performance Summary**
+
+```{r}
+# add column for model_type
+knn_metrics$model <- "k nearest-neighbors"
+dt_metrics$model <- "decision tree"
+bt_metrics$model <- "bagged tree"
+rf_metrics$model <- "random forest"
+
+# remove .config columns
+dt_metrics <- dt_metrics %>% select(-c(.config))
+knn_metrics <- knn_metrics %>% select(-c(.config))
+
+# combine metrics into a single table
+final_metric_tbl <- rbind(knn_metrics, dt_metrics, 
+                          bt_metrics, rf_metrics) %>% 
+  relocate(model)
+
+# view results
+final_metric_tbl %>% kbl(caption = "Model Metrics") %>% 
+  kable_minimal()
+```
+
+**Evaluation:** Based on the accuracy, the best performing model was tied between the random forest and bagged tree models. Both performed with a 62.26% accuracy. Overall, the models were only slightly better than random (assuming a 50/50 chance of guessing the correct partner). Personally, this was about what I expected for the model. Rosemary and I had many similar liked songs, which was notable in the mean table during the data exploration phase.
+
+**Visualization:**
+
+```{r}
+final_metric_tbl %>% 
+  filter(.metric == "accuracy") %>% 
+  ggplot() +
+  geom_col(aes(x = reorder(model, .estimate), 
+               y = (.estimate * 100), fill = model)) +
+  scale_fill_manual(values = c("#ffbc42", "#d81159", "#218380", "#73d2de")) +
+  labs(x = "Model Type", y = "Accuracy %",
+       title = "Assess ML Model Performance in Predicting Listener",
+       fill = "Model") +
+  ylim(0,100) +
+  geom_text(aes(x = reorder(model, .estimate), 
+               y = (.estimate * 100),
+               label = round((.estimate * 100),
+                             digits = 3)),
+            vjust = -1) +
+  theme_minimal()
+```
