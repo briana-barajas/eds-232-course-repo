@@ -55,7 +55,7 @@ You can use `get_my_saved_tracks()` to request all your liked tracks. It would b
 The Spotify API returns a dataframe of tracks and associated attributes. However, it will only return up to 50 (or 20) tracks at a time, so you will have to make multiple requests. Use a function to combine all your requests in one call.
 
 ```{r}
-# function to get last 500 likes
+# function to get last 200 likes
 top_tracks_fun <- function(code){
   
   top_50 <- get_my_saved_tracks(limit = 50, offset = 0,
@@ -181,6 +181,303 @@ Option 1. you or your partner's collection
 
 You will eventually create four final candidate models:
 
+```{r}
+## ==================================
+##    Pre-processing ALL Models  ----
+## ==================================
+# set seed and split data
+set.seed(125)
+
+# split data
+audio_split <- initial_split(compare_track_audio, prop = 0.7)
+audio_train <- training(audio_split)
+audio_test <- testing(audio_split)
+
+# create recipe
+recip <- recipe(partner~., data = audio_train) %>% 
+  step_dummy(all_nominal(), -all_outcomes(),
+             one_hot = TRUE) %>% 
+  step_normalize(all_numeric(), -all_outcomes()) %>% 
+  prep()
+
+# apply recipe
+bake <- bake(recip, audio_train)
+```
+
+### k-nearest neighbors (Week 5)
+
+```{r knn}
+set.seed(125)
+
+## ==================================
+##        KNN Pre-processing    ----
+## ==================================
+
+# specify KNN as the model
+# Define nearest neighbor model (EMD)
+knn_spec <- nearest_neighbor(neighbors = 5) %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+
+# fit knn model
+knn_fit <- knn_spec %>% 
+  fit(partner~ ., data = audio_train)
+
+
+## ==================================
+##            KNN Resample       ----
+## ==================================
+# set number of cross validation folds
+knn_cv_folds <- audio_train %>% 
+  vfold_cv(v = 10)
+
+# combine into workflow
+# Workflow (EMD)
+knn_workflow <- workflow() %>% 
+  add_model(knn_spec) %>%
+  add_recipe(recip)
+
+# fit resamples
+# Fit resamples (EMD)
+knn_resamples <- knn_workflow %>% 
+  fit_resamples(
+    resamples = knn_cv_folds,
+    control = control_resamples(save_pred = TRUE)
+  )
+
+## ==================================
+##             KNN Tuning        ----
+## ==================================
+
+# define KNN model with tuning
+# Tune the hyperparameters (EMD)
+knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+# define new wf with tuned hyperparameters
+# Workflow: Define new workflow (EMD)
+knn_wf_tuned <- workflow() %>% 
+  add_model(knn_spec_tune) %>% 
+  add_recipe(recip)
+
+# fit the workflow on our pre-defined folds hyperparameters
+# Fit workflow on predefined folds and hyperparameters (EMD)
+fit_knn_cv <- knn_wf_tuned %>% 
+  tune_grid(
+    knn_cv_folds,
+    grid = data.frame(neighbors = c(1, 5, seq(10, 100, 10))))
+
+## ==================================
+##          KNN Final Model      ----
+## ==================================
+
+# Workflow: Final (EMD)
+knn_final_wf <- knn_wf_tuned %>% 
+  finalize_workflow(select_best(fit_knn_cv, 
+                                metric = "accuracy"))
+
+# fit the final work flow
+# Fit: Final (EMD)
+knn_final_fit <- knn_final_wf %>% fit(data = audio_train)
+knn_pred <- knn_final_fit %>% predict(new_data = audio_test)
+knn_final_fit <- knn_final_fit %>% last_fit(audio_split)
+
+# View final results
+knn_final_fit %>% collect_metrics()
+
+
+```
+
+### Decision Tree (Week 5)
+
+```{r decision-tree}
+
+set.seed(125)
+
+## ==================================
+##  Decision Tree Pre-processing ----
+## ==================================
+
+# set-up a decision tree specification
+tree_spec_fixed <- decision_tree(
+  cost_complexity = 0.1,
+  tree_depth = 4,
+  min_n = 11) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+## ==================================
+##      Decision Tree Tuning     ----
+## ==================================
+
+# tell the model that we are tuning hyperameters
+tree_spec_tune <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+# create grid
+tree_grid <- grid_regular(cost_complexity(),
+                          tree_depth(),
+                          min_n(), levels = 5)
+
+# create workflow
+wf_dt_tune <- workflow() %>% 
+  add_recipe(recip) %>% 
+  add_model(tree_spec_tune)
+
+## ==================================
+##    Decision Tree Resampling   ----
+## ==================================
+
+# set up k-fold cross validation
+dt_cv_folds <- audio_train %>% 
+  vfold_cv(v = 10)
+
+# build decision trees in parallel
+doParallel::registerDoParallel() 
+
+dt_tree_rs <- tune_grid(
+    wf_dt_tune,
+    resamples = dt_cv_folds,
+    grid = tree_grid,
+    metrics = metric_set(accuracy)) #END tune_grid
+
+# select best hyperparameters
+final_d_tree <- finalize_workflow(wf_dt_tune,
+                                  select_best(dt_tree_rs))
+
+## ==================================
+##          DT Final Model       ----
+## ==================================
+final_dt_fit <- fit(final_d_tree, data = audio_train)
+
+final_dt_result <- last_fit(final_dt_fit, audio_split)
+```
+
+### Bagged Tree (Week 6)
+
+```{r bagged-tree}
+
+set.seed(125)
+
+## ==================================
+##         Bagged Tree Tuning    ----
+## ==================================
+
+# tuning, 50 bagged trees
+bt_spec_tune <- bag_tree(
+  mode = "classification",
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()) %>% 
+  set_engine("rpart", times = 50) %>% 
+  set_mode("classification")
+
+# define tree grid
+bt_tree_grid <- grid_regular(cost_complexity(),
+                             tree_depth(),
+                             min_n(),
+                             levels = 5)
+
+# define workflow
+bt_wf_tune <- workflow() %>% 
+  add_recipe(recip) %>% 
+  add_model(bt_spec_tune)
+
+## ==================================
+##      Bagged Tree Resampling   ----
+## ==================================
+
+# set up k-fold cross validation
+bt_cv_folds <- audio_train %>% 
+  vfold_cv(v = 10)
+
+# build model & fit
+doParallel::registerDoParallel()
+
+bt_tree_rs <- bt_wf_tune %>% 
+  tune_grid(partner~.,
+            resamples = bt_cv_folds,
+            grid = bt_tree_grid,
+            metrics = metric_set(accuracy))
+
+## ==================================
+##          BT Final Model       ----
+## ==================================
+# finalize tuned model
+bt_final <- finalize_workflow(bt_wf_tune, select_best(bt_tree_rs, "accuracy")) %>% 
+  fit(data = audio_train)
+
+# make predictions
+bt_pred <- bt_final %>% 
+  predict(new_data = audio_test) %>% 
+  bind_cols(audio_test)
+
+# save metrics
+bt_pred_metrics <- bt_pred %>% 
+  metrics(truth = partner, estimate = .pred_class)
+```
+
+```{r random-forest}
+
+set.seed(125)
+
+## ==================================
+##    Random Forest Pre-processing     ----
+## ==================================
+
+# set up cv-folds
+rf_cv_folds <- vfold_cv(audio_train, v = 5)
+
+# tune model
+rf_model <- rand_forest(mtry = tune(),
+                        trees = tune()) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+# define workflow
+rf_workflow <- workflow() %>% 
+  add_model(rf_model) %>% 
+  add_recipe(recip)
+
+## ==================================
+##    Random Forest Tuning       ----
+## ==================================
+
+# tune workflow
+rf_cv_tune <- rf_workflow %>% 
+  tune_grid(resamples = rf_cv_folds, grid = 10)
+
+
+## ==================================
+##      Random Forest Resamples  ----
+## ==================================
+
+
+
+## ==================================
+##      Random Forest Final      ----
+## ==================================
+# define best 
+rf_best <- show_best(rf_cv_tune, n = 1,
+                     metric = "roc_auc")
+
+# finalize workflow
+rf_final <- finalize_workflow(rf_workflow,
+                              select_best(rf_cv_tune, metric = "roc_auc"))
+
+# fit the model to the training set
+train_fit_rf <- fit(rf_final, audio_train)
+
+# get predictions
+rf_pred <- predict(train_fit_rf, audio_test) %>% 
+  bind_cols(audio_test)
+```
+
 1.  k-nearest neighbor (Week 5)
 2.  decision tree (Week 5)
 3.  bagged tree (Week 6)
@@ -203,82 +500,18 @@ Go through the modeling process for each model:
 Preprocessing. You can use the same recipe for all the models you create.
 
 ```{r preprocessing}
-## ==================================
-##    Pre-processing ALL Models  ----
-## ==================================
-# set seed and split data
-set.seed(125)
-
-# split data
-audio_split <- initial_split(compare_track_audio, prop = 0.7)
-audio_train <- training(audio_split)
-audio_test <- testing(audio_split)
-
-# create recipe
-recip <- recipe(partner~., data = audio_train) %>% 
-  step_dummy(all_nominal(), -all_outcomes(),
-             one_hot = TRUE) %>% 
-  step_normalize(all_numeric(), -all_outcomes()) %>% 
-  prep()
-
-# apply recipe
-bake <- bake(recip, audio_train)
-
-## ==================================
-##      1. KNN Pre-processing    ----
-## ==================================
-
-# specify KNN as the model
-knn_spec <- nearest_neighbor(neighbors = 5) %>% 
-  set_engine("kknn") %>% 
-  set_mode("classification")
-
-# fit knn model
-knn_fit <- knn_spec %>% 
-  fit(partner~ ., data = audio_train)
 ```
 
 Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
 
 ```{r}
-set.seed(125)
 
-## ==================================
-##         1. KNN Resample       ----
-## ==================================
-# set number of cross validation folds
-knn_cv_folds <- audio_train %>% 
-  vfold_cv(v = 10)
-
-# combine into workflow
-knn_workflow <- workflow() %>% 
-  add_model(knn_spec) %>%
-  add_recipe(recip)
-
-# fit resamples
-knn_resamples <- knn_workflow %>% 
-  fit_resamples(
-    resamples = knn_cv_folds,
-    control = control_resamples(save_pred = TRUE)
-  )
 ```
 
 Tuning. Find the best values for each hyperparameter (within a reasonable range).
 
 ```{r}
-## ==================================
-##          1. KNN Tuning        ----
-## ==================================
 
-# define KNN model with tuning
-knn_spec_tune <- nearest_neighbor(neighbors = tune()) %>% 
-  set_mode("classification") %>% 
-  set_engine("kknn")
-
-# define new wf with tuned hyperparameters
-knn_tuned <- workflow() %>% 
-  add_model(knn_spec_tune) %>% 
-  add_recipe(recip)
 
 ```
 
