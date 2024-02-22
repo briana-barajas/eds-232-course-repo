@@ -29,6 +29,7 @@ library(spotifyr) #API interaction
 library(tidyverse)
 library(tidymodels)
 library(here)
+library(baguette)
 
 library(kableExtra) # tables and plots
 library(gridExtra)
@@ -200,8 +201,9 @@ recip <- recipe(partner~., data = audio_train) %>%
   step_normalize(all_numeric(), -all_outcomes()) %>% 
   prep()
 
-# apply recipe
-bake <- bake(recip, audio_train)
+# set number of cross validation folds
+cv_folds <- vfold_cv(audio_train, v = 10)
+
 ```
 
 ### k-nearest neighbors (Week 5)
@@ -219,17 +221,9 @@ knn_spec <- nearest_neighbor(neighbors = 5) %>%
   set_engine("kknn") %>% 
   set_mode("classification")
 
-# fit knn model
-knn_fit <- knn_spec %>% 
-  fit(partner~ ., data = audio_train)
-
-
 ## ==================================
 ##            KNN Resample       ----
 ## ==================================
-# set number of cross validation folds
-knn_cv_folds <- audio_train %>% 
-  vfold_cv(v = 10)
 
 # combine into workflow
 # Workflow (EMD)
@@ -241,7 +235,7 @@ knn_workflow <- workflow() %>%
 # Fit resamples (EMD)
 knn_resamples <- knn_workflow %>% 
   fit_resamples(
-    resamples = knn_cv_folds,
+    resamples = cv_folds,
     control = control_resamples(save_pred = TRUE)
   )
 
@@ -265,7 +259,7 @@ knn_wf_tuned <- workflow() %>%
 # Fit workflow on predefined folds and hyperparameters (EMD)
 fit_knn_cv <- knn_wf_tuned %>% 
   tune_grid(
-    knn_cv_folds,
+    cv_folds,
     grid = data.frame(neighbors = c(1, 5, seq(10, 100, 10))))
 
 ## ==================================
@@ -281,12 +275,18 @@ knn_final_wf <- knn_wf_tuned %>%
 # Fit: Final (EMD)
 knn_final_fit <- knn_final_wf %>% fit(data = audio_train)
 knn_pred <- knn_final_fit %>% predict(new_data = audio_test)
+
 knn_final_fit <- knn_final_fit %>% last_fit(audio_split)
 
 # View final results
 knn_final_fit %>% collect_metrics()
 
+# store metrics
+knn_metrics <- as.data.frame(knn_final_fit$.metrics)
 
+# clean environment 
+rm(knn_spec, knn_workflow, knn_resamples, knn_spec_tune,
+   knn_wf_tuned, fit_knn_cv, knn_final_wf, knn_final_fit)
 ```
 
 ### Decision Tree (Week 5)
@@ -333,29 +333,36 @@ wf_dt_tune <- workflow() %>%
 ##    Decision Tree Resampling   ----
 ## ==================================
 
-# set up k-fold cross validation
-dt_cv_folds <- audio_train %>% 
-  vfold_cv(v = 10)
-
 # build decision trees in parallel
 doParallel::registerDoParallel() 
 
 dt_tree_rs <- tune_grid(
     wf_dt_tune,
-    resamples = dt_cv_folds,
+    resamples = cv_folds,
     grid = tree_grid,
     metrics = metric_set(accuracy)) #END tune_grid
 
 # select best hyperparameters
-final_d_tree <- finalize_workflow(wf_dt_tune,
+final_dt <- finalize_workflow(wf_dt_tune,
                                   select_best(dt_tree_rs))
 
 ## ==================================
 ##          DT Final Model       ----
 ## ==================================
-final_dt_fit <- fit(final_d_tree, data = audio_train)
+dt_final_fit <- fit(final_dt, data = audio_train)
 
-final_dt_result <- last_fit(final_dt_fit, audio_split)
+dt_final_result <- last_fit(dt_final_fit, audio_split)
+
+# store final results as df
+dt_pred <- as.data.frame(final_dt_result$.predictions) %>% 
+  bind_cols(audio_test)
+
+# store metrics
+dt_metrics <- as.data.frame(dt_final_result$.metrics)
+
+# clear environment
+rm(tree_spec_fixed, tree_spec_tune, tree_grid, wf_dt_tune,
+   dt_tree_rs, final_dt, dt_final_fit, dt_final_result)
 ```
 
 ### Bagged Tree (Week 6)
@@ -374,8 +381,7 @@ bt_spec_tune <- bag_tree(
   cost_complexity = tune(),
   tree_depth = tune(),
   min_n = tune()) %>% 
-  set_engine("rpart", times = 50) %>% 
-  set_mode("classification")
+  set_engine("rpart", times = 50)
 
 # define tree grid
 bt_tree_grid <- grid_regular(cost_complexity(),
@@ -392,16 +398,12 @@ bt_wf_tune <- workflow() %>%
 ##      Bagged Tree Resampling   ----
 ## ==================================
 
-# set up k-fold cross validation
-bt_cv_folds <- audio_train %>% 
-  vfold_cv(v = 10)
-
 # build model & fit
 doParallel::registerDoParallel()
 
 bt_tree_rs <- bt_wf_tune %>% 
   tune_grid(partner~.,
-            resamples = bt_cv_folds,
+            resamples = cv_folds,
             grid = bt_tree_grid,
             metrics = metric_set(accuracy))
 
@@ -418,8 +420,10 @@ bt_pred <- bt_final %>%
   bind_cols(audio_test)
 
 # save metrics
-bt_pred_metrics <- bt_pred %>% 
+bt_metrics <- bt_pred %>% 
   metrics(truth = partner, estimate = .pred_class)
+
+rm(bt_final, bt_tree_rs, bt_wf_tune, bt_tree_grid, bt_spec_tune)
 ```
 
 ```{r random-forest}
@@ -427,14 +431,12 @@ bt_pred_metrics <- bt_pred %>%
 set.seed(125)
 
 ## ==================================
-##    Random Forest Pre-processing     ----
+##      Random Forest Tuning     ----
 ## ==================================
-
-# set up cv-folds
-rf_cv_folds <- vfold_cv(audio_train, v = 5)
 
 # tune model
 rf_model <- rand_forest(mtry = tune(),
+                        min_n = tune(),
                         trees = tune()) %>% 
   set_engine("ranger") %>% 
   set_mode("classification")
@@ -448,16 +450,9 @@ rf_workflow <- workflow() %>%
 ##    Random Forest Tuning       ----
 ## ==================================
 
-# tune workflow
+# tune hyperparameters
 rf_cv_tune <- rf_workflow %>% 
-  tune_grid(resamples = rf_cv_folds, grid = 10)
-
-
-## ==================================
-##      Random Forest Resamples  ----
-## ==================================
-
-
+  tune_grid(resamples = cv_folds, grid = 10)
 
 ## ==================================
 ##      Random Forest Final      ----
@@ -476,6 +471,12 @@ train_fit_rf <- fit(rf_final, audio_train)
 # get predictions
 rf_pred <- predict(train_fit_rf, audio_test) %>% 
   bind_cols(audio_test)
+
+# get accuracy of testing prediction
+rf_metrics <- as.data.frame(accuracy(rf_pred, truth = partner, estimate = .pred_class))
+
+
+rm(rf_model, rf_workflow, rf_cv_tune, rf_best, rf_final, train_fit_rf)
 ```
 
 1.  k-nearest neighbor (Week 5)
@@ -499,21 +500,9 @@ Go through the modeling process for each model:
 
 Preprocessing. You can use the same recipe for all the models you create.
 
-```{r preprocessing}
-```
-
 Resampling. Make sure to use appropriate resampling to select the best version created by each algorithm.
 
-```{r}
-
-```
-
 Tuning. Find the best values for each hyperparameter (within a reasonable range).
-
-```{r}
-
-
-```
 
 Compare the performance of the four final models you have created.
 
