@@ -32,8 +32,8 @@ https://github.com/MaRo406/eds-232-machine-learning/blob/main/data
 # read in data
 eel_mod <- read_csv(here(data_dir, "eel.model.data.csv")) %>% 
   select(-Site) %>% 
-  mutate(Angaus = as.factor(Angaus),
-         Method = as.factor(Method))
+  mutate(Method = as.factor(Method),
+         Angaus = as.factor(Angaus))
 
 eel_eval <- read_csv(here(data_dir, "eel.eval.data.csv"))
 ```
@@ -94,7 +94,7 @@ xgb_spec1 <- boost_tree(learn_rate = tune()) %>%
 
 # create workflow
 xgb_workflow1 <- workflow() %>% 
-  add_model(xgb_spec) %>% 
+  add_model(xgb_spec1) %>% 
   add_recipe(recip)
 
 
@@ -105,7 +105,44 @@ xgb_workflow1 <- workflow() %>%
 # set up grid
 system.time(
   
-  xgb_cv_tune1 <- xgb_workflow %>% 
+  xgb_cv_tune1 <- xgb_workflow1 %>% 
+    tune_grid(resamples = cv_folds, grid = expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30)))
+    
+) # END system.time
+
+
+## ==================================================
+##            3. Best Model Performance          ----
+## ==================================================
+
+# view models with highest accuracy
+test <- select_best(xgb_cv_tune1, "accuracy")
+```
+
+
+```{r, eval=FALSE}
+## ==================================================
+##                1. Create Model Spec           ----
+## ==================================================
+# define model specifications
+xgb_spec1 <- boost_tree(learn_rate = tune()) %>% 
+  set_engine("xgboost", nthread = 2) %>% 
+  set_mode("classification")
+
+# create workflow
+xgb_workflow1 <- workflow() %>% 
+  add_model(xgb_spec1) %>% 
+  add_recipe(recip)
+
+
+## ==================================================
+##                 2. Set Up Grid                ----
+## ==================================================
+
+# set up grid
+system.time(
+  
+  xgb_cv_tune1 <- xgb_workflow1 %>% 
     tune_grid(resamples = cv_folds, grid = 10) %>% 
     expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))
 ) # END system.time
@@ -115,7 +152,7 @@ system.time(
 ##            3. Best Model Performance          ----
 ## ==================================================
 
-# view best performance variables
+# finalize workflow
 
 ```
 
@@ -171,6 +208,8 @@ system.time(
 2.  Set up a tuning grid. Use grid_latin_hypercube() again.
 
 3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
+
+__NOTE:__ `mtry` us a stochastic parameter
 
 ```{r}
 
