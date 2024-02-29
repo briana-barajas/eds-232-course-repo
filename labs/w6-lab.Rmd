@@ -21,6 +21,7 @@ This week's lab follows a project modeling the eel species *Anguilla australis* 
 library(tidyverse)
 library(tidymodels)
 library(here)
+library(gt)
 ```
 
 ## Data
@@ -79,7 +80,7 @@ Following the XGBoost tuning strategy outlined in lecture, first we conduct tuni
 
 2.  Set up a grid to tune your model by using a range of learning rate parameter values: `expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))`
 
--   Use appropriate metrics argument(s) - Computational efficiency becomes a factor as models get more complex and data get larger. Record the time it takes to run. Do this for each tuning phase you run.You could use {tictoc} or Sys.time().
+-   Use appropriate metrics argument(s) - Computational efficiency becomes a factor as models get more complex and data get larger. Record the time it takes to run. Do this for each tuning phase you run.You could use {tictoc} or `system.time()`.
 
 3.  Show the performance of the best models and the estimates for the learning rate parameter values associated with each.
 
@@ -87,7 +88,7 @@ Following the XGBoost tuning strategy outlined in lecture, first we conduct tuni
 ## ==================================================
 ##                1. Create Model Spec           ----
 ## ==================================================
-# define model specifications
+# create xgboost model specifications
 xgb_spec1 <- boost_tree(learn_rate = tune()) %>% 
   set_engine("xgboost", nthread = 2) %>% 
   set_mode("classification")
@@ -106,7 +107,8 @@ xgb_workflow1 <- workflow() %>%
 system.time(
   
   xgb_cv_tune1 <- xgb_workflow1 %>% 
-    tune_grid(resamples = cv_folds, grid = expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30)))
+    tune_grid(resamples = cv_folds, 
+              grid = expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30)))
     
 ) # END system.time
 
@@ -114,45 +116,11 @@ system.time(
 ## ==================================================
 ##            3. Best Model Performance          ----
 ## ==================================================
+# view model performance & estimates of learning rate
+autoplot(xgb_cv_tune1) + theme_light()
 
-# view models with highest accuracy
-test <- select_best(xgb_cv_tune1, "accuracy")
-```
-
-
-```{r, eval=FALSE}
-## ==================================================
-##                1. Create Model Spec           ----
-## ==================================================
-# define model specifications
-xgb_spec1 <- boost_tree(learn_rate = tune()) %>% 
-  set_engine("xgboost", nthread = 2) %>% 
-  set_mode("classification")
-
-# create workflow
-xgb_workflow1 <- workflow() %>% 
-  add_model(xgb_spec1) %>% 
-  add_recipe(recip)
-
-
-## ==================================================
-##                 2. Set Up Grid                ----
-## ==================================================
-
-# set up grid
-system.time(
-  
-  xgb_cv_tune1 <- xgb_workflow1 %>% 
-    tune_grid(resamples = cv_folds, grid = 10) %>% 
-    expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))
-) # END system.time
-
-
-## ==================================================
-##            3. Best Model Performance          ----
-## ==================================================
-
-# finalize workflow
+# show top 5 values of learning rate
+show_best(xgb_cv_tune1, n = 5, metric = "accuracy") %>% gt()
 
 ```
 
@@ -172,7 +140,7 @@ system.time(
 ## ==================================================
 
 # update model specifications to include tree parameter
-xgb_spec2 <- boost_tree(learn_rate = tune(),
+xgb_spec2 <- boost_tree(learn_rate = select_best(xgb_cv_tune1, metric = "accuracy"),
                         trees = tune()) %>% 
   set_engine("xgboost", nthread = 2) %>% 
   set_mode("classification")
@@ -197,7 +165,11 @@ system.time(
 ## ==================================================
 ##          3. Best Model Performance            ----
 ## ==================================================
+# view model performance & estimates of learning rate
+autoplot(xgb_cv_tune2) + theme_light()
 
+# show top 5 values of learning rate
+show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
 ```
 
 
