@@ -1,0 +1,214 @@
+---
+title: "Clustering Lab"
+author: "Briana Barajas"
+date: 2024-02-29
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+## Demo 
+```{r, echo = FALSE, eval = TRUE}
+library(tidyverse) 
+library(cluster) #cluster analysis
+library(factoextra) #cluster visualization
+library(tidymodels) #simulation 
+library(readr) #read data
+library(RColorBrewer)# Color palettes
+```
+
+We'll start off with some simulated data that has a structure that is amenable to clustering analysis.
+
+```{r init_sim}
+#Set the parameters of our simulated data
+set.seed(101)
+
+# simulating data that has clear clusters
+cents <- tibble(
+  cluster = factor(1:3), # set to have 3 clusters
+  
+  num_points = c(100, 150, 50), # define size of clusters
+  
+  x1 = c(5, 0, -3), # coordinates for center of cluster
+  x2 = c(-1, 1, -2)
+  
+)
+```
+So in this simulated data, the first cluster will be 100 points and the center will be at (5,-1).
+
+```{r sim}
+#Simulate the data by passing n and mean to rnorm using map2()
+labelled_pts <- cents %>% 
+  
+  mutate(
+    # create a series of coordinates that correspond to all 100 points in cluster1
+    x1 = map2(num_points, x1, rnorm),
+    x2 = map2(num_points, x2, rnorm)) %>% 
+  
+  select(-num_points) %>% 
+  unnest(cols=c(x1, x2))
+
+# plot points
+ggplot(labelled_pts, aes(x1, x2, col = cluster)) +
+  geom_point(alpha = 0.4) +
+  scale_color_manual(values = c("maroon", "dodgerblue", "yellowgreen")) +
+  theme_minimal()
+```
+__NOTE:__ `map()` applies a function to a list, `map2()` is applying two functions to a list. In this case, we are applying the `rnorm` function.
+
+```{r kmeans}
+# remove cluster column so model only knows coordinates, not groups
+points <- labelled_pts %>% 
+  select(-cluster)
+
+# input data, and parameter k (k = number of cluster centers)
+# we're using 3 because we know that's the true value, but this isn't always the case
+kclust <- kmeans(points, centers = 3, n = 25)
+kclust
+```
+__NOTE:__ Recall the original seeds were 5, 0, -3. Here our model predicted 0.09870959, -2.68158808, and 4.96961472. We can change the number of times the model is run by changing the `n` parameter. When n = 25, the new estimates are -2.68158808, 0.09870959, 4.96961472. In each of these 25 runs, the initial points are slightly different.
+
+```{r syst_k}
+#now let's try a systematic method for setting k
+kclusts <- tibble(k = 1:9) %>% # trying values of k from 1-9
+  
+  mutate(
+    #running kmeans function were points is the data, and we're returning a single list of k-values. Using map() since returning one list
+    kclust = map(k, ~kmeans(points, .x)), 
+    augmented = map(kclust, augment, points)
+  )
+```
+
+```{r assign}
+#append cluster assignment to tibble
+# assignments is which cluster each point is associated with 
+assignments <- kclusts %>% unnest(cols = c(augmented))
+head(assignments, 2)
+```
+__NOTE:__ Unnesting allows you to view each model run, where each model differs by the number of centers.
+
+```{r plot_9_clust}
+#Plot each model to view clusters created by the model 
+p1 <- ggplot(assignments, aes(x1, x2, col = .cluster), alpha = 0.8) +
+  geom_point() +
+  scale_color_brewer(palette = "Paired") + theme_minimal()
+
+p1
+```
+
+```{r elbow}
+#Use a clustering function from {factoextra} to plot  total WSSs
+fviz_nbclust(points, kmeans, "wss")
+
+```
+__NOTE:__ Created a plot using `fviz_nbclust` to find the elbow. Based on the plot, it seems like the best value of k is around 3. After 3, there are not large improvements in WSS.
+
+```{r more_fviz}
+#Another plotting method
+k3 <- kmeans(points, centers = 3, nstart = 25)
+
+p3 <- fviz_cluster(k3, geom = "point", data = points) +
+  ggtitle("k = 3") +
+  theme_minimal() +
+  scale_color_manual(values = c("maroon", "dodgerblue", "yellowgreen")) +
+  scale_fill_manual(values = c("maroon", "dodgerblue", "yellowgreen"))
+
+p3
+```
+
+
+## In-class assignment!
+
+Now it's your turn to partition a dataset.  For this round we'll use data from Roberts et al. 2008 on bio-contaminants in Sydney Australia's Port Jackson Bay.  The data are measurements of metal content in two types of co-occurring algae at 10 sample sites around the bay.
+
+```{r, echo = FALSE, eval = TRUE}
+# clean environment
+rm(list = ls())
+
+library(tidyverse) 
+library(cluster) #cluster analysis
+library(factoextra) #cluster visualization
+library(tidymodels) #simulation 
+library(readr) #read data
+library(RColorBrewer)# Color palettes
+```
+
+```{r data}
+#Read in data
+metals_dat <- readr::read_csv(here::here("demo", "data", "w8-harbour_metals.csv"))
+
+# Inspect the data
+head(metals_dat, 4) %>% gt::gt()
+
+metals_dat %>% 
+  summarise(Cd_mean = mean(Cd),
+            Cr_mean = mean(Cr),
+            Cu_mean = mean(Cu),
+            Mn_mean = mean(Mn),
+            Ni_mean = mean(Ni),
+            Pb_mean = mean(Pb),
+            Zn_mean = mean(Zn)) %>% gt::gt()
+
+#Grab pollutant variables
+metals_dat2 <- metals_dat[, 4:8] 
+```
+1. Start with k-means clustering - `kmeans()`.  You can start with `fviz_nbclust()` to identify the best value of k. Then plot the model you obtain with the optimal value of k. 
+
+Do you notice anything different about the spacing between clusters?  Why might this be?
+
+Run `summary()` on your model object.  Does anything stand out?
+
+```{r}
+# determine the best value of k, in this case we'll use 3
+fviz_nbclust(metals_dat2, kmeans, "wss")
+
+# calculate kmeans using k=3
+k3 <- kmeans(metals_dat2, centers = 3, n = 25)
+
+# visualize the model
+fviz_cluster(k3, geom = "point", data = metals_dat2) +
+  ggtitle("k = 3") +
+  theme_minimal() +
+  scale_color_manual(values = c("maroon", "dodgerblue", "yellowgreen")) +
+  scale_fill_manual(values = c("maroon", "dodgerblue", "yellowgreen"))
+
+# view summary
+k3
+```
+__ANS:__ Based on the `fviz_nbclust` plot, the optimal value of k appears to be 3. Between 3 and 4 there is very little change in the total within sum of square value. The spacing between clusters seems to be very large. It is possible there are some outliers that don't fit well into any particular group. Additionally, there is a point from cluster 3 that appears to fall within the cluster 2 area. There are 3 clusters with 10, 22, and 28 points. Each row in the "cluster means" represents an average point in the center of the cluster. For example, in [1,Cd] the value of 0.796000 represents the mean value of Cd within that cluster. For the first cluster, the average values of Cu and Mn are notably higher than within other clusters.
+
+2. Good, now let's move to hierarchical clustering that we saw in lecture. The first step for that is to calculate a distance matrix on the data (using `dist()`). Euclidean is a good choice for the distance method.
+
+```{r}
+# calculate the distance matrix
+distance <- dist(metals_dat2, method = "euclidean")
+```
+
+2. Use `tidy()` on the distance matrix so you can see what is going on. What does each row in the resulting table represent?
+```{r}
+distance_tidy <- broom::tidy(distance)
+head(distance_tidy, 5) %>% gt::gt()
+```
+__ANS:__ The `item1` and `item2` columns represent a pairing of two data points, and the `distance` column is the calculated Euclidean distance between those two points.
+
+3. Then apply hierarchical clustering with hclust().
+```{r}
+# apply hierarchical clustering
+metals_clust <- hclust(distance)
+```
+
+4. Now plot the clustering object. You can use something of the form plot(as.dendrogram()).  Or you can check out the cool visual options here: https://rpubs.com/gaston/dendrograms
+
+How does the plot look? Do you see any outliers?  How can you tell?  
+
+```{r}
+plot(as.dendrogram(metals_clust))
+```
+__ANS:__ Point 51 appears to be an outlier. The height of the dendrogram represents the distance, and there is a very large distance between this point and the other points it is clustered with.
+
+
