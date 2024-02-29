@@ -1,0 +1,178 @@
+```{r setup, include=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(here) #easy file paths
+library(tidyverse) #data wrangling
+library(tidymodels) #modeling
+library(tidyclust)
+library(patchwork)
+
+set.seed(42) #set random seed
+```
+
+## Data Cleaning
+
+Today, we are going to use the top 3 habitats and take a random sample of 500, then select trophic level and length for clustering
+
+```{r}
+# clean data
+fish_clean = read_csv(here("discussion", "data", "w2-fish-clean.csv")) %>% 
+  mutate(habitat = as.factor(habitat)) %>% 
+  
+  # filtered to 3 most different habitat to improve results
+  filter(habitat %in% c("reef-associated", "demersal", "benthopelagic")) %>% 
+  sample_n(500)
+
+# we're clustering based on trophic level & length so we're working in 2D space
+fish_clust <- fish_clean %>% 
+  select(trophic_level_impute, length_impute) 
+
+# view class of cluster columns
+lapply(fish_clust, class)
+
+```
+
+## Clustering
+
+```{r}
+folds <- vfold_cv(fish_clust, v=5)
+```
+
+### KMeans
+
+```{r}
+kmeans_spec <- k_means(num_clusters = tune()) %>% 
+  set_engine("stats") #stats selects base R kmeans function
+```
+
+```{r}
+recipe <- recipe(~., data = fish_clust) %>% 
+  step_normalize(all_predictors())
+
+kmean_workflow <- workflow(recipe, kmeans_spec)
+```
+
+```{r}
+# creating a grid of 1-10 cluster centers that are used
+clust_num_grid <- grid_regular(num_clusters(),
+                               levels = 10) 
+```
+
+```{r}
+res <- tune_cluster(
+  kmean_workflow,
+  resamples = folds,
+  grid = clust_num_grid,
+  control = control_grid(save_pred = TRUE, extract = identity),
+  metrics = cluster_metric_set(sse_within_total, sse_total, sse_ratio)
+)
+```
+Inputs are similar to other tunes, inputing wf, grid, and folds. The metrics are some of the most common for kmeans. We want the `sse_ratio` to be as small as possible, as this signifies that values between points are small. `sse_ratio` is calculated using `sse_within_total` and `sse_total`. 
+
+```{r}
+res_metrics <- res %>% collect_metrics()
+res_metrics
+```
+Produces mean values of the metrics we set. For example, in then `num_clusters` is 1, the mean ratio (mean column) is 1 since all points are within a single cluster.
+
+#### Comparing values of k
+
+```{r}
+res_metrics %>%
+  filter(.metric == "sse_ratio") %>%
+  ggplot(aes(x = num_clusters, y = mean)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  ylab("mean WSS/TSS ratio, over 5 folds") +
+  xlab("Number of clusters") +
+  scale_x_continuous(breaks = 1:10)
+```
+The ratios printed above using `collect_metrics` are the same values used here to find the "elbow". We'll be comparing k=4 and k=5, since there is no way to use `select_best` to pull out the true best value.
+
+```{r}
+# create specifications with 4 clusters
+kmeans_spec1 <- k_means(num_clusters = 4) %>% 
+  set_engine("stats")
+
+# create workflow using new specs and same recipe
+kmeans_workflow1 <- workflow(recipe, kmeans_spec1)
+```
+
+```{r}
+kmeans_fit1 <- kmeans_workflow1 %>% 
+  fit(data = fish_clust)
+kmeans_fit1
+  
+```
+`between_ss` is the within cluster variance, and you want this to be small. This means the values within the clusters are very similar. You would also want the `total_ss` to be larger. This indicates high variation between different clusters.
+
+```{r}
+# create specifications with 5 clusters
+kmeans_spec2 <- k_means(num_clusters = 5) %>% 
+  set_engine("stats")
+
+# create workflow using new specs and same recipe
+kmeans_workflow2 <- workflow(recipe, kmeans_spec2)
+```
+
+```{r}
+kmeans_fit2 <- kmeans_workflow2 %>% 
+  fit(data = fish_clust)
+kmeans_fit2
+```
+The ratio of within/total is slightly higher. This means the model performs slightly better than when k=5, but this should not be used as the only metric for choosing k.
+
+#### Comparing silhouette
+```{r}
+kmeans_fit1 %>% 
+  silhouette_avg(fish_clust)
+```
+
+```{r}
+kmeans_fit2 %>% 
+  silhouette_avg(fish_clust)
+```
+The `silhouette_avg` checks validatiy and accuracy within the data. The higher `.estimate` of the silhouette is the better performing model. 
+
+#### Plotting clusters
+```{r}
+# isolate cluster assignments for points
+clusters <- kmeans_fit1 %>% 
+  extract_cluster_assignment()
+
+# append cluster column onto original df
+fish_clean$cluster = clusters$.cluster
+```
+
+```{r}
+ggplot(fish_clean) +
+  geom_point(aes(trophic_level_impute, length_impute,
+                 color = cluster, shape = habitat)) +
+  theme_minimal() +
+  scale_color_manual(values = c("maroon", "dodgerblue", "yellowgreen",
+                                "mediumorchid"))
+```
+Added the `shape = cluster` to see if the habitat types coincide with the clusters. Overall the model did pretty poorly, likely because there is no clear clustering in the data provided.
+
+### Heirarchical Clustering
+
+```{r}
+# apply hierarchical clustering
+hc_spec <- hier_clust(
+  linkage_method = "average"
+)
+```
+`linkage_method` defines how the agglomaration is done. Hasn't been gone over in lecture, so we won't go over it now.
+
+```{r}
+# fit model same way, no recipe bc you don't need to normalize for heirarchical clustering
+hc_fit <- hc_spec %>% 
+  fit(~., data = fish_clean)
+```
+
+```{r}
+# plot fit data
+hc_fit$fit %>% plot
+```
+Very ugly. Fish 380 is very different, it separates super early.
