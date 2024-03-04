@@ -143,7 +143,10 @@ best_learn_rate <- as.numeric(best_learn_rate$learn_rate)
 
 # update model specifications to include tree parameter
 xgb_spec2 <- boost_tree(learn_rate = best_learn_rate,
-                        trees = tune()) %>% 
+                        trees = 3000,
+                        tree_depth = tune(),
+                        min_n = tune(),
+                        loss_reduction = tune()) %>% 
   set_engine("xgboost", nthread = 2) %>% 
   set_mode("classification")
 
@@ -163,21 +166,22 @@ system.time(
   
   xgb_cv_tune2 <- xgb_workflow2 %>% 
     tune_grid(resamples = cv_folds,
-              grid = grid_latin_hypercube(x = xgb_param2, size = 20))
-
+              grid = grid_latin_hypercube(x = xgb_param2, size = 10))
+  
 ) # END system.time
 
 ## ==================================================
 ##          3. Best Model Performance            ----
 ## ==================================================
 
-# show top 5 values of learning rate
-show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
-
+# show top performing model accuracies
 autoplot(xgb_cv_tune2) + theme_light()
+
+show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
 
 
 ```
+
 
 ### Tune Stochastic Parameters
 
@@ -190,6 +194,56 @@ autoplot(xgb_cv_tune2) + theme_light()
 __NOTE:__ `mtry` is a stochastic parameter
 
 ```{r}
+## ==================================================
+##                1. Update Model Spec           ----
+## ==================================================
+# isolate best value for tree parameters
+best_tree_param <- select_best(xgb_cv_tune2, metric = "accuracy")
+best_min_n <- as.numeric(best_tree_param$min_n)
+best_tree_depth <- as.numeric(best_tree_param$tree_depth)
+best_loss_reduction <- as.numeric(best_tree_param$loss_reduction)
+
+# create updated specifications
+xgb_spec3 <- boost_tree(learn_rate = best_learn_rate,
+                        trees = 3000,
+                        tree_depth = best_tree_depth,
+                        min_n = best_min_n,
+                        loss_reduction = best_loss_reduction,
+                        
+                        mtry = tune(),
+                        sample_size = tune()) %>% 
+  set_engine("xgboost", nthread = 2) %>% 
+  set_mode("classification")
+
+# isolate parameters
+xgb_param3 <- xgb_spec3 %>% extract_parameter_set_dials()
+
+# create workflow with updated specs
+xgb_workflow3 <- workflow() %>% 
+  add_model(xgb_spec3) %>% 
+  add_recipe(recip)
+
+## ==================================================
+##          2. Tune with latin-hyper-cube        ----
+## ==================================================
+
+system.time(
+  
+  xgb_cv_tune3 <- xgb_workflow3 %>% 
+    tune_grid(resamples = cv_folds,
+              grid = grid_latin_hypercube(finalize(xgb_param3, x = eel_train),
+                size = 10))
+  
+) # END system.time
+
+## ==================================================
+##          3. Best Model Performance            ----
+## ==================================================
+
+# show top performing model accuracies
+autoplot(xgb_cv_tune3) + theme_light()
+
+show_best(xgb_cv_tune3, n = 5, metric = "accuracy") %>% gt()
 
 ```
 
@@ -197,6 +251,15 @@ __NOTE:__ `mtry` is a stochastic parameter
 ## Finalize workflow and make final prediction
 
 1.  How well did your model perform? What types of errors did it make?
+
+```{r}
+# finalize the workflow
+final_wf <- finalize_workflow(xgb_workflow3, select_best(xgb_cv_tune3, metric = "accuracy"))
+
+# make final prediction
+
+```
+
 
 ## Fit your model the evaluation data and compare performance
 
