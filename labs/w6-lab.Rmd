@@ -109,7 +109,7 @@ system.time(
   xgb_cv_tune1 <- xgb_workflow1 %>% 
     tune_grid(resamples = cv_folds, 
               grid = expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30)))
-    
+  
 ) # END system.time
 
 
@@ -129,21 +129,26 @@ show_best(xgb_cv_tune1, n = 5, metric = "accuracy") %>% gt()
 
 1.  Create a new specification where you set the learning rate (which you already optimized) and tune the tree parameters.
 
-2.  Set up a tuning grid. This time use grid_latin_hypercube() to get a representative sampling of the parameter space
+2.  Set up a tuning grid. This time use `grid_latin_hypercube()` to get a representative sampling of the parameter space
 
 3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
 
 ```{r}
-
 ## ==================================================
 ##                1. Update Model Spec           ----
 ## ==================================================
+# isolate best value for learning rate
+best_learn_rate <- select_best(xgb_cv_tune1, metric = "accuracy")
+best_learn_rate <- as.numeric(best_learn_rate$learn_rate)
 
 # update model specifications to include tree parameter
-xgb_spec2 <- boost_tree(learn_rate = select_best(xgb_cv_tune1, metric = "accuracy"),
+xgb_spec2 <- boost_tree(learn_rate = best_learn_rate,
                         trees = tune()) %>% 
   set_engine("xgboost", nthread = 2) %>% 
   set_mode("classification")
+
+# isolate parameters
+xgb_param2 <- xgb_spec2 %>% extract_parameter_set_dials()
 
 # create workflow with updated specs
 xgb_workflow2 <- workflow() %>% 
@@ -157,31 +162,32 @@ xgb_workflow2 <- workflow() %>%
 system.time(
   
   xgb_cv_tune2 <- xgb_workflow2 %>% 
-    extract_parameter_set_dials() %>% 
-    grid_latin_hypercube()
-  
+    tune_grid(resamples = cv_folds,
+              grid = grid_latin_hypercube(x = xgb_param2, size = 20))
+
 ) # END system.time
 
 ## ==================================================
 ##          3. Best Model Performance            ----
 ## ==================================================
-# view model performance & estimates of learning rate
-autoplot(xgb_cv_tune2) + theme_light()
 
 # show top 5 values of learning rate
 show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
-```
 
+autoplot(xgb_cv_tune2) + theme_light()
+
+
+```
 
 ### Tune Stochastic Parameters
 
 1.  Create a new specification where you set the learning rate and tree parameters (which you already optimized) and tune the stochastic parameters.
 
-2.  Set up a tuning grid. Use grid_latin_hypercube() again.
+2.  Set up a tuning grid. Use `grid_latin_hypercube()` again.
 
 3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
 
-__NOTE:__ `mtry` us a stochastic parameter
+__NOTE:__ `mtry` is a stochastic parameter
 
 ```{r}
 
