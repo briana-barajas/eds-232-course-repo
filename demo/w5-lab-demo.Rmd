@@ -139,8 +139,6 @@ fit_knn_cv <- wf_knn_tune %>%
     grid = data.frame(neighbors = c(1, 5, seq(10, 100, 10))),
   )
   
-  
-
 # Check the performance with collect_metrics()
 fit_knn_cv %>% collect_metrics()
 ```
