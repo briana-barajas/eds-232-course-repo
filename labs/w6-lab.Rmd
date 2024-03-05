@@ -11,23 +11,21 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 data_dir <- here::here("labs", "data")
 ```
 
-
-
 ## Case Study: Eel Distribution Modeling
 
-This week's lab follows a project modeling the eel species *Anguilla australis* described by Elith et al. (2008). There are two data sets for this lab.  You'll use one for training and evaluating your model, and you'll use your model to make predictions predictions on the other.  Then you'll compare your model's performance to the model used by Elith et al.
+This week's lab follows a project modeling the eel species *Anguilla australis* described by Elith et al. (2008). There are two data sets for this lab. You'll use one for training and evaluating your model, and you'll use your model to make predictions predictions on the other. Then you'll compare your model's performance to the model used by Elith et al.
 
 ```{r, results='hide'}
 library(tidyverse)
 library(tidymodels)
 library(here)
 library(gt)
+library(vip)
 ```
 
 ## Data
 
-Grab the training data sets (eel.model.data.csv, eel.eval.data.csv) from github here:
-https://github.com/MaRo406/eds-232-machine-learning/blob/main/data 
+Grab the training data sets (eel.model.data.csv, eel.eval.data.csv) from github here: <https://github.com/MaRo406/eds-232-machine-learning/blob/main/data>
 
 ```{r, results='hide'}
 # read in data
@@ -36,7 +34,11 @@ eel_mod <- read_csv(here(data_dir, "eel.model.data.csv")) %>%
   mutate(Method = as.factor(Method),
          Angaus = as.factor(Angaus))
 
-eel_eval <- read_csv(here(data_dir, "eel.eval.data.csv"))
+eel_eval <- read_csv(here(data_dir, "eel.eval.data.csv")) %>% 
+  rename(Angaus = Angaus_obs) %>% 
+  mutate(Method = as.factor(Method),
+         Angaus = as.factor(Angaus))
+  
 ```
 
 ### Split and Resample
@@ -55,7 +57,6 @@ eel_test <- testing(eel_split)
 cv_folds <- vfold_cv(eel_train, v = 10)
 ```
 
-
 ### Preprocess
 
 Create a recipe to prepare your data for the XGBoost model
@@ -66,7 +67,6 @@ recip <- recipe(Angaus~., data = eel_train) %>%
   step_dummy(all_nominal_predictors()) %>%
   step_normalize(all_numeric_predictors())
 ```
-
 
 ## Tuning XGBoost
 
@@ -85,6 +85,8 @@ Following the XGBoost tuning strategy outlined in lecture, first we conduct tuni
 3.  Show the performance of the best models and the estimates for the learning rate parameter values associated with each.
 
 ```{r}
+set.seed(125)
+
 ## ==================================================
 ##                1. Create Model Spec           ----
 ## ==================================================
@@ -124,7 +126,6 @@ show_best(xgb_cv_tune1, n = 5, metric = "accuracy") %>% gt()
 
 ```
 
-
 ### Tune Tree Parameters
 
 1.  Create a new specification where you set the learning rate (which you already optimized) and tune the tree parameters.
@@ -134,6 +135,8 @@ show_best(xgb_cv_tune1, n = 5, metric = "accuracy") %>% gt()
 3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
 
 ```{r}
+set.seed(125)
+
 ## ==================================================
 ##                1. Update Model Spec           ----
 ## ==================================================
@@ -175,13 +178,12 @@ system.time(
 ## ==================================================
 
 # show top performing model accuracies
-autoplot(xgb_cv_tune2) + theme_light()
+# autoplot(xgb_cv_tune2) + theme_light()
 
 show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
 
 
 ```
-
 
 ### Tune Stochastic Parameters
 
@@ -191,9 +193,11 @@ show_best(xgb_cv_tune2, n = 5, metric = "accuracy") %>% gt()
 
 3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
 
-__NOTE:__ `mtry` is a stochastic parameter
+**NOTE:** `mtry` is a stochastic parameter
 
 ```{r}
+set.seed(125)
+
 ## ==================================================
 ##                1. Update Model Spec           ----
 ## ==================================================
@@ -241,25 +245,36 @@ system.time(
 ## ==================================================
 
 # show top performing model accuracies
-autoplot(xgb_cv_tune3) + theme_light()
+# autoplot(xgb_cv_tune3) + theme_light()
 
 show_best(xgb_cv_tune3, n = 5, metric = "accuracy") %>% gt()
 
 ```
-
 
 ## Finalize workflow and make final prediction
 
 1.  How well did your model perform? What types of errors did it make?
 
 ```{r}
+set.seed(125)
+
 # finalize the workflow
 final_wf <- finalize_workflow(xgb_workflow3, select_best(xgb_cv_tune3, metric = "accuracy"))
 
-# make final prediction
+# fit the model to the training data
+xgb_fit <- fit(final_wf, eel_train)
 
+# make final prediction using test data
+eel_predict <- predict(object = xgb_fit, new_data = eel_test) %>% 
+  bind_cols(eel_test)
+
+# collect and view metrics
+metrics <- as.data.frame(accuracy(eel_predict, truth = Angaus,
+                                  estimate = .pred_class))
+metrics %>% gt()
 ```
 
+**ANS:** The model had an accuracy of 0.800, meaning that 80% of predictions were accurate. After browsing through the predictions, it seems that the model is more likely to predict the species is present when it isn't. In terms of estimating species absence, the model appeared to work better.
 
 ## Fit your model the evaluation data and compare performance
 
@@ -271,3 +286,31 @@ final_wf <- finalize_workflow(xgb_workflow3, select_best(xgb_cv_tune3, metric = 
 
 -   Use {vip} to compare variable importance
 -   What do your variable importance results tell you about the distribution of this eel species?
+
+```{r}
+set.seed(125)
+
+## ==================================================
+##              1. Predict on Eval Data          ----
+## ==================================================
+# make predictions using model and evaluation data
+eval_eel_predict <- predict(object = xgb_fit, new_data = eel_eval) %>% 
+  bind_cols(eel_eval)
+
+## ==================================================
+##               2. Model Performance            ----
+## ==================================================
+# collect and view metrics
+metrics_final <- as.data.frame(accuracy(eval_eel_predict, truth = Angaus,
+                                  estimate = .pred_class))
+metrics_final %>% gt()
+
+## ==================================================
+##               3. Variable Importance          ----
+## ==================================================
+xgb_fit %>% vip(geom = "col", 
+                       aesthetics = list(fill = "darkcyan")) +
+  theme_minimal()
+```
+
+__ANS:__ After running the prediction on the evaluation data, I was surprised to see that the predictions on the evaluation data were only slightly less accurate (1%) than the predictions on the testing data. Similar to Elith et al., summer air temperature (`SegSumT`) and proportion of area within indigenous forest (`USNative`) were the two most importance. After these two, the variable importance for my model is different than the importance proposed by Elith et al. Based on the similarities in variable importance, it seems that `air temperature and area within indigenous `SegSumT` and `USNative` are key variables in predicting eel distribution.
