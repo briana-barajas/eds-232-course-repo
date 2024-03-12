@@ -4,6 +4,7 @@ author: "Briana Barajas"
 date: "2023-02-15"
 output: html_document
 ---
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -14,7 +15,9 @@ library(tidymodels)
 library(vip) #variable importance
 library(here)
 ```
+
 ## R
+
 ```{r}
 kaggle_dat <- read_csv(here("demo","data","w6-genres_v2.csv"))
 unique(kaggle_dat$genre)
@@ -57,7 +60,7 @@ genre_rec <- recipe(genre~., data = genre_train) %>%
   
 ```
 
-Set up a decision tree specification. Note: the cost_complexity parameter is a pruning penalty parameter that controls how much we penalize the number of terminal nodes in the tree.  It's conceptually similar to lambda from regularized regression.
+Set up a decision tree specification. Note: the cost_complexity parameter is a pruning penalty parameter that controls how much we penalize the number of terminal nodes in the tree. It's conceptually similar to lambda from regularized regression.
 
 ```{r tree_specification}
 tree_spec_fixed <- decision_tree(
@@ -70,6 +73,7 @@ tree_spec_fixed <- decision_tree(
 ```
 
 But, as usual, we don't want just any old values for our hyperparameters, we want optimal values.
+
 ```{r}
 #new spec, tell the model that we are tuning hyperparams
 tree_spec_tune <- decision_tree(
@@ -115,7 +119,9 @@ system.time(
 
 tree_rs
 ```
-Use autoplot() to examine how different parameter configurations relate to accuracy 
+
+Use autoplot() to examine how different parameter configurations relate to accuracy
+
 ```{r}
 # examine accuracy, which we selected as the method in previous step
 autoplot(tree_rs) + theme_minimal() + scale_color_manual(values = c("maroon", "orchid2", "red2", "midnightblue", "magenta3"))
@@ -152,6 +158,7 @@ final_tree_result$.metrics #accuracy and AUC
 ```
 
 #Visualize variable importance
+
 ```{r tree_vip}
 ## ....... visualize importance ......
 final_tree_fit %>% vip(geom = "col", 
@@ -171,4 +178,3 @@ predict_data %>%
 ```
 
 Importance variable looks at how important each variable is for the prediction. Not all variables contribute equally, since one variable might have more distinct values between different classes.
-
