@@ -1,0 +1,104 @@
+---
+title: "Lab 8"
+author: "Briana Barajas"
+date: "2024-03-06"
+output: html_document
+---
+
+## Forest Cover Classification with SVM
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r, results='hide'}
+library(tidyverse)
+library(tidymodels)
+library(kernlab)
+library(here)
+library(gt)
+```
+
+In this week's lab we are exploring the use of Support Vector Machines for multi-class classification. Specifically, you will be using cartographic variables to predict forest cover type (7 types).
+
+Natural resource managers responsible for developing ecosystem management strategies require basic descriptive information including inventory data like forest cover type for forested lands to support their decision-making processes. However, managers generally do not have this type of data for in-holdings or neighboring lands that are outside their immediate jurisdiction. One method of obtaining this information is through the use of predictive models.
+
+You task is build both an SVM and a random forest model and compare their performance on accuracy and computation time.
+
+1.  The data is available here: <https://ucsb.box.com/s/ai5ost029enlguqyyn04bnlfaqmp8kn4>
+
+```{r, results='hide'}
+# read in data
+cover_type <- read_csv(here("labs", "data", "covtype_sample.csv"))
+```
+
+Explore the data.
+
+-   What kinds of features are we working with?
+
+-   Does anything stand out that will affect you modeling choices?
+
+Hint: Pay special attention to the distribution of the outcome variable across the classes.
+
+```{r}
+# view data (commented out)
+# head(cover_type, 5) %>% gt()
+
+# check how many times each cover type appears in the data set
+plyr::count(cover_type$Cover_Type) %>% gt()
+
+```
+
+**ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from prior experience running regressions that this will not affect the outcome.
+
+2.  Create the recipe and carry out any necessary preprocessing. Can you use the same recipe for both models?
+
+```{r}
+set.seed(125)
+
+# split data
+split <- initial_split(cover_type)
+train <- training(split)
+test <- training(split)
+
+# specify recipe for models
+recip <- recipe(Cover_Type~., data = train) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+
+##========================================
+##           SVM Pre-processing       ----
+##========================================
+
+# create svm model specification
+svm_spec <- svm_poly(degree = 54, cost = 10) %>% 
+  set_mode("classification") %>% 
+  set_engine("kernlab")
+
+# create workflow
+svm_wf <- workflow() %>% 
+  add_recipe(recip) %>% 
+  add_model(svm_spec)
+
+
+##========================================
+##            RF Pre-processing       ----
+##========================================
+
+# create rf model specification
+```
+
+**ANS:** The same recipe can be used for the support vector machines, and random forest model. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`.
+
+3.  Create the folds for cross-validation.
+```{r}
+cv_folds <- vfold_cv(data = cover_type, strata = y)
+```
+
+
+4.  Tune the models. Choose appropriate parameters and grids. If the computational costs of tuning given your strategy are prohibitive, how might you work around this?
+
+5.  Conduct final predictions for both models and compare their prediction performances and computation costs from part 4.
+
+-   Which type of model do you think is better for this task?
+-   Why do you speculate this is the case?
