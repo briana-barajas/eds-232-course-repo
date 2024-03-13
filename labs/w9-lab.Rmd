@@ -45,24 +45,24 @@ Hint: Pay special attention to the distribution of the outcome variable across t
 # view data (commented out)
 # head(cover_type, 5) %>% gt()
 
-# check how many times each cover type appears in the data set
-plyr::count(cover_type$Cover_Type) %>% gt()
+# count number of cover types in dataset
+plyr::count(cover_type$Cover_Type) %>% 
+  
+  ggplot(aes(x = x, y = freq)) +
+  geom_col(fill = "dodgerblue2") +
+  labs(x = "Cover Type", y = "Frequency") +
+  theme_minimal()
+  
 
-# count for soil_type15
-plyr::count(cover_type$Soil_Type_15) %>% gt()
 
 # update dataframe
 cover_type <- cover_type %>% 
   
   # convert soil type to factor
-  mutate(Cover_Type = as.factor(Cover_Type)) %>% 
-  
-  # remove soil type 15, which has no variation
-  select(-c(Soil_Type_15))
-
+  mutate(Cover_Type = as.factor(Cover_Type))
 ```
 
-**ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from prior experience running regressions that this will not affect the outcome.
+**ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from prior experience running regressions that this should not affect the outcome. Soil type 15 has no entries, and this lack of variation was addressed in the . Additionally, I noticed 
 
 2.  Create the recipe and carry out any necessary preprocessing. Can you use the same recipe for both models?
 
@@ -76,24 +76,20 @@ test <- testing(split)
 
 # store vector of continuous variables
 
-# specify recipe for models
-recip <- recipe(Cover_Type~., data = train)
+# specify recipe for random forest
+recip <- recipe(Cover_Type~., data = train) %>% 
+  step_zv(all_predictors()) %>% #remove cols w/no variance
+  step_center(all_predictors()) %>% #normalize
+  step_scale(all_predictors())
 
 ##========================================
 ##           SVM Pre-processing       ----
 ##========================================
 
-# create svm model specification
-svm_spec <- svm_poly(cost = tune(),
-                     degree = tune()) %>% 
+# create specification for 
+svm_rbf_spec <- svm_rbf() %>% 
   set_mode("classification") %>% 
-  set_engine("kernlab", nthread = 2)
-
-# create workflow
-svm_wf <- workflow() %>% 
-  add_recipe(recip) %>% 
-  add_model(svm_spec)
-
+  set_engine("kernlab")
 
 ##========================================
 ##            RF Pre-processing       ----
@@ -102,11 +98,12 @@ svm_wf <- workflow() %>%
 # create rf model specification
 ```
 
-**ANS:** The same recipe can be used for the support vector machines, and random forest model. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`.
+**ANS:** The same recipe can be used for the support vector machines, and random forest model. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`. To ignore variables such as soil type 15 that have no variation, `step_zv()` was applied first.
 
 3.  Create the folds for cross-validation.
 ```{r}
-cv_folds <- vfold_cv(data = train, v = 10)
+# create cross validation with strata for cover type (acount for uneven dist)
+cv_folds <- vfold_cv(data = train, v = 10, strata = Cover_Type)
 ```
 
 
@@ -114,17 +111,25 @@ cv_folds <- vfold_cv(data = train, v = 10)
 
 ```{r}
 # grid stating we want to try 10 different values for cost
-param_grid <- grid_regular(cost(), degree(), levels = 10)
+param_grid <- grid_regular(cost(), levels = 10)
 
-# # now need to tune the grid
-# svm_poly_wf <- tune_grid(
-#   svm_wf,
-#   resamples = cv_folds,
-#   grid = param_grid
-# )
-# 
-# autoplot(tune_res)
+# now need to tune the grid
+tune_res <- tune_grid(
+  svm_wf,
+  resamples = cv_folds,
+  grid = param_grid
+)
 
+autoplot(tune_res)
+
+```
+```{r}
+svm_rbf_fit <- svm_rbf_spec %>%
+  fit(Cover_Type~., data = train)
+
+# augment(svm_rbf_fit, new_data = sim_data2_test) %>%
+#   roc_curve(truth = y, .pred_1) %>%
+#   autoplot()
 ```
 
 
@@ -132,3 +137,9 @@ param_grid <- grid_regular(cost(), degree(), levels = 10)
 
 -   Which type of model do you think is better for this task?
 -   Why do you speculate this is the case?
+
+```{r}
+# final fit svm
+
+```
+
