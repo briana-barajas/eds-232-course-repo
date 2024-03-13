@@ -24,7 +24,7 @@ sim_data <- tibble(
 
   # if y=1, change x1 to be x1+1.5 (else keep value of x1)
   mutate(x1 = ifelse(y==1, x1 + 1.5, x1),
-         x2 = ifelse(y==1, x2 + 1.5, x1))
+         x2 = ifelse(y==1, x2 + 1.5, x2))
 
 # view simulated data
 head(sim_data, 5)
@@ -36,7 +36,7 @@ head(sim_data, 5)
 ggplot(sim_data, aes(x1, x2, color = y)) +
   geom_point() +
   theme_minimal() +
-  scale_color_manual(values = c("orchid2", "firebrick"))
+  scale_color_manual(values = c("orchid2", "navy"))
 
 ```
 
@@ -64,11 +64,13 @@ In SVM, the cost parameter influences the width of the margin around the separat
 svm_workflow <- workflow() %>% 
   add_recipe(svm_rec) %>% 
   add_model(svm_linear_spec)
+
 ```
 
 ```{r}
 #Fit workflow
 svm_linear_fit <- fit(svm_workflow, data = sim_data)
+
 ```
 
 ```{r}
@@ -83,7 +85,7 @@ svm_linear_fit %>%
 #As usual we want to tune our hyperparameter values
 svm_linear_wf <- workflow() %>% 
   add_model(svm_linear_spec %>% 
-  set_args(cost_tune())) %>% #will override the cost=10 we set earlier
+  set_args(cost = tune())) %>% #will override the cost=10 we set earlier
   add_formula(y~.)
 
 set.seed(1)
