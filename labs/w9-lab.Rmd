@@ -13,6 +13,7 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 ```{r, results='hide'}
 library(tidyverse)
+library(tidyselect)
 library(tidymodels)
 library(kernlab)
 library(here)
@@ -47,6 +48,18 @@ Hint: Pay special attention to the distribution of the outcome variable across t
 # check how many times each cover type appears in the data set
 plyr::count(cover_type$Cover_Type) %>% gt()
 
+# count for soil_type15
+plyr::count(cover_type$Soil_Type_15) %>% gt()
+
+# update dataframe
+cover_type <- cover_type %>% 
+  
+  # convert soil type to factor
+  mutate(Cover_Type = as.factor(Cover_Type)) %>% 
+  
+  # remove soil type 15, which has no variation
+  select(-c(Soil_Type_15))
+
 ```
 
 **ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from prior experience running regressions that this will not affect the outcome.
@@ -59,21 +72,22 @@ set.seed(125)
 # split data
 split <- initial_split(cover_type)
 train <- training(split)
-test <- training(split)
+test <- testing(split)
+
+# store vector of continuous variables
 
 # specify recipe for models
-recip <- recipe(Cover_Type~., data = train) %>% 
-  step_center(all_predictors()) %>% 
-  step_scale(all_predictors())
+recip <- recipe(Cover_Type~., data = train)
 
 ##========================================
 ##           SVM Pre-processing       ----
 ##========================================
 
 # create svm model specification
-svm_spec <- svm_poly(degree = 54, cost = 10) %>% 
+svm_spec <- svm_poly(cost = tune(),
+                     degree = tune()) %>% 
   set_mode("classification") %>% 
-  set_engine("kernlab")
+  set_engine("kernlab", nthread = 2)
 
 # create workflow
 svm_wf <- workflow() %>% 
@@ -92,11 +106,27 @@ svm_wf <- workflow() %>%
 
 3.  Create the folds for cross-validation.
 ```{r}
-cv_folds <- vfold_cv(data = cover_type, strata = y)
+cv_folds <- vfold_cv(data = train, v = 10)
 ```
 
 
 4.  Tune the models. Choose appropriate parameters and grids. If the computational costs of tuning given your strategy are prohibitive, how might you work around this?
+
+```{r}
+# grid stating we want to try 10 different values for cost
+param_grid <- grid_regular(cost(), degree(), levels = 10)
+
+# # now need to tune the grid
+# svm_poly_wf <- tune_grid(
+#   svm_wf,
+#   resamples = cv_folds,
+#   grid = param_grid
+# )
+# 
+# autoplot(tune_res)
+
+```
+
 
 5.  Conduct final predictions for both models and compare their prediction performances and computation costs from part 4.
 
