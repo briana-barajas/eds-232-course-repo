@@ -172,7 +172,7 @@ svm_rbf_spec <- svm_rbf() %>%
 
 ```{r}
 #Fit the new specification
-svm_rbf_fit <- svm_rbf_spec %>% 
+# svm_rbf_fit <- svm_rbf_spec %>% 
   
   
 ```
