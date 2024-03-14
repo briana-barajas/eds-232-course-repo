@@ -1,0 +1,142 @@
+---
+title: "Lab 9"
+author: "Briana Barajas"
+date: "2024-03-06"
+---
+
+## Preparation
+
+```{r}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+
+Load libraries
+```{r, results='hide'}
+library(tidyverse)
+library(tidymodels)
+library(here)
+```
+
+Read in Data
+```{r, results='hide'}
+train_data <- read_csv(here("labs", "data", "ocean-chemistry-prediction", "train.csv")) 
+```
+
+
+## Explore the Data
+
+Select exploration steps were set to `eval = FALSE` to minimize clutter.
+```{r, eval=FALSE}
+# view data types
+glimpse(train_data)
+
+# check for NAs
+colSums(is.na(train_data)) #entire ...13 column is NA
+
+# check if id column is unique
+plyr::count(train_data$id)
+```
+
+```{r}
+# update training data
+train_data <- train_data %>% 
+  
+  # remove column of NAs and unique identifier (id) column
+  select(-c(id, ...13))
+
+# view distribution of DIC
+ggplot(train_data) +
+  geom_histogram(aes(x = DIC), col = "lightblue4", fill = "lightblue", bins = 30) +
+  labs(y = "Count", title = "Distribution of DIC") +
+  theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Preprocessing
+
+The following pre-processing steps will be utilized in most, if not all, of the machine learning models.
+```{r}
+# specify folds for cross-validation
+folds <- vfold_cv(train_data, v = 10, repeats = 2)
+
+# define a recipe (regression formula)
+recip <- recipe(DIC ~., data = train_data) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors())
+```
+
+Model specifications will be unique to each model:
+```{r} 
+## ...............random forest........................
+
+# random forest model specification
+rf_spec <- rand_forest(mtry = tune(), 
+                       trees = tune()) %>%
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+# random forest model workflow
+rf_wf <- workflow() %>% 
+  add_model(rf_spec) %>% 
+  add_recipe(recip)
+
+## ...............decision tree........................
+
+# decision tree model specification
+dtree_spec <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tube(),
+  min_n = tune()) %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+# decision tree model workflow
+dtree_wf <- workflow() %>% 
+  add_recipe(recip) %>% 
+  add_model(dtree_spec)
+
+## ...............boosted regression ....................
+
+# create boosted regression tree model specification
+xgb_spec <- boost_tree(learn_rate = tune(),
+                       trees = tune(),
+                       tree_depth = tune(),
+                       min_n = tune(),
+                       loss_reduction = tune(),
+                       mtry = tune(),
+                       sample_size = tune()) %>% 
+  set_engine("xgboost", nthread = 2) %>% 
+  set_mode("regression")
+
+# create xgb model workflow
+xgb_wf <- workflow() %>% 
+  add_model(xgb_spec) %>% 
+  add_recipe(recip)
+
+```
+
+
+## Tuning Models
+
+```{r}
+## ...............random forest........................
+rf_tune_res <- rf_wf %>% 
+  tune_grid(resamples = folds,
+            grid = 10)
+
+```
+
+
+
+
+## Final Predictions
+Note
+
+
+## Model Assessment
+
+
+
+
+
