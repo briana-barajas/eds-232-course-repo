@@ -30,7 +30,8 @@ You task is build both an SVM and a random forest model and compare their perfor
 
 ```{r, results='hide'}
 # read in data
-cover_type <- read_csv(here("labs", "data", "covtype_sample.csv"))
+cover_type <- read_csv(here("data", "covtype_sample.csv")) %>% 
+  mutate(Cover_Type = as.factor(Cover_Type))
 ```
 
 Explore the data.
@@ -45,24 +46,19 @@ Hint: Pay special attention to the distribution of the outcome variable across t
 # view data (commented out)
 # head(cover_type, 5) %>% gt()
 
-# count number of cover types in dataset
+# view column names (commented out)
+#colnames(cover_type)
+
+# count and plot number of cover types in data
 plyr::count(cover_type$Cover_Type) %>% 
+  mutate(x = as.factor(x)) %>% 
   
   ggplot(aes(x = x, y = freq)) +
-  geom_col(fill = "dodgerblue2") +
-  labs(x = "Cover Type", y = "Frequency") +
-  theme_minimal()
-  
-
-
-# update dataframe
-cover_type <- cover_type %>% 
-  
-  # convert soil type to factor
-  mutate(Cover_Type = as.factor(Cover_Type))
+  geom_col(fill = "darkmagenta") +
+  labs(x = "Cover Type", y = "Frequency", title = "Cover Type Frequency") +
+  theme_minimal() + theme(plot.title = element_text(hjust = 0.5, size = 16))
 ```
-
-**ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from prior experience running regressions that this should not affect the outcome. Soil type 15 has no entries, and this lack of variation was addressed in the . Additionally, I noticed 
+**ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from previous experience that this should not affect the outcome. Soil type 15 has no entries, and this lack of variation was addressed in the following recipe stepped. Additionally, I noticed that cover type 1 and 2 are the most represented in the data. To diminish the effect of this uneven distribution, it's important to create stratified samples.
 
 2.  Create the recipe and carry out any necessary preprocessing. Can you use the same recipe for both models?
 
@@ -73,8 +69,6 @@ set.seed(125)
 split <- initial_split(cover_type)
 train <- training(split)
 test <- testing(split)
-
-# store vector of continuous variables
 
 # specify recipe for random forest
 recip <- recipe(Cover_Type~., data = train) %>% 
@@ -96,42 +90,50 @@ svm_rbf_spec <- svm_rbf() %>%
 ##========================================
 
 # create rf model specification
+rf_spec <- rand_forest(mtry = tune(),
+                       trees = tune()) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+# create rf model workflow
+rf_workflow <- workflow() %>% 
+  add_model(rf_spec) %>% 
+  add_recipe(recip)
+
 ```
 
-**ANS:** The same recipe can be used for the support vector machines, and random forest model. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`. To ignore variables such as soil type 15 that have no variation, `step_zv()` was applied first.
+**ANS:** Only one recipe is required for the random forest model. For the support vector machine, `svm_rbf()` will be used instead, and the recipe will be specified during the fit step. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`. To ignore variables such as soil type 15 that have no variation, `step_zv()` was applied first.
 
 3.  Create the folds for cross-validation.
 ```{r}
-# create cross validation with strata for cover type (acount for uneven dist)
-cv_folds <- vfold_cv(data = train, v = 10, strata = Cover_Type)
+# create cross validation with strata for cover type (account for uneven distribution)
+cv_folds <- vfold_cv(data = train, v = 5, strata = Cover_Type)
 ```
 
 
 4.  Tune the models. Choose appropriate parameters and grids. If the computational costs of tuning given your strategy are prohibitive, how might you work around this?
 
 ```{r}
-# grid stating we want to try 10 different values for cost
-param_grid <- grid_regular(cost(), levels = 10)
-
-# now need to tune the grid
-tune_res <- tune_grid(
-  svm_wf,
+##========================================
+##              RF Tuning             ----
+##========================================
+# tune grid for rf
+system.time( tune_res <- tune_grid(
+  rf_workflow,
   resamples = cv_folds,
-  grid = param_grid
-)
+  grid = 5))
 
-autoplot(tune_res)
+# # plot results
+# autoplot(tune_res)
 
-```
-```{r}
-svm_rbf_fit <- svm_rbf_spec %>%
-  fit(Cover_Type~., data = train)
+# collect metrics for best model
+rf_best <- select_best(tune_res, metric = "roc_auc") 
 
-# augment(svm_rbf_fit, new_data = sim_data2_test) %>%
-#   roc_curve(truth = y, .pred_1) %>%
-#   autoplot()
+# finalize workflow
+rf_final <- finalize_workflow(rf_workflow, rf_best)
 ```
 
+**ANS:** To avoid the high computation time for `tune_grid` in the svm model, I used `svm_rbf()` instead of `svm_poly()`. I was more limited when it came to the random forest model. I moved my repository to the Tsosie server, and decreased the number of folds and grid to 5 instead of 10.
 
 5.  Conduct final predictions for both models and compare their prediction performances and computation costs from part 4.
 
@@ -139,7 +141,41 @@ svm_rbf_fit <- svm_rbf_spec %>%
 -   Why do you speculate this is the case?
 
 ```{r}
+set.seed(125)
+
+##========================================
+##           SVM Final Predictions    ----
+##========================================
 # final fit svm
+system.time( svm_rbf_fit <- svm_rbf_spec %>%
+  fit(Cover_Type~., data = train) )
+
+# make final predictions and bind with test data
+svm_predict <- augment(svm_rbf_fit, new_data = test) 
+
+##========================================
+##           RF Final Predictions     ----
+##========================================
+# fit model
+train_fit_rf <- fit(rf_final, train)
+
+# make final predictions and bind with test data
+rf_predict <- augment(train_fit_rf, new_data = test) 
+
+##========================================
+##            Compare Models          ----
+##========================================
+# view accuracy for each model 
+svm_accuracy <- accuracy(svm_predict, truth = Cover_Type, estimate = .pred_class)
+svm_accuracy$model <- "SVM"
+
+rf_accuracy <- accuracy(rf_predict, truth = Cover_Type, estimate = .pred_class)
+rf_accuracy$model <- "RF"
+
+svm_accuracy %>% bind_rows(rf_accuracy) %>% gt() %>% 
+  tab_header(title = "Model Accuracy")
 
 ```
+
+**ANS:** Overall, the random forest model was the better option. Although using `svm_rbf()` decreased the computation time of the support vector machine model, it was still more than double the run time of the random forest. I will note that I decreased the grid, and number of folds to improve the random forest run time. Despite this, it was still the better model. Ideally, I would increase the number of folds to improve the random forest model. While very sophisticated, I suspect working in multiple dimensions and transforming data could have decreased the accuracy of the svm model.
 
