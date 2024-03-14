@@ -35,7 +35,7 @@ glimpse(train_data)
 colSums(is.na(train_data)) #entire ...13 column is NA
 
 # check if id column is unique
-plyr::count(train_data$id)
+length(unique(train_data$id)) == nrow(train_data)
 ```
 
 ```{r}
@@ -58,7 +58,7 @@ ggplot(train_data) +
 The following pre-processing steps will be utilized in most, if not all, of the machine learning models.
 ```{r}
 # specify folds for cross-validation
-folds <- vfold_cv(train_data, v = 10, repeats = 2)
+folds <- vfold_cv(train_data, v = 5)
 
 # define a recipe (regression formula)
 recip <- recipe(DIC ~., data = train_data) %>% 
@@ -68,11 +68,15 @@ recip <- recipe(DIC ~., data = train_data) %>%
 
 Model specifications will be unique to each model:
 ```{r} 
-## ...............random forest........................
+
+## ======================================================
+##              Random Forest Pre-processing         ----
+## ======================================================
 
 # random forest model specification
 rf_spec <- rand_forest(mtry = tune(), 
-                       trees = tune()) %>%
+                       trees = tune(),
+                       min_n = tune()) %>%
   set_engine("ranger") %>% 
   set_mode("regression")
 
@@ -81,12 +85,14 @@ rf_wf <- workflow() %>%
   add_model(rf_spec) %>% 
   add_recipe(recip)
 
-## ...............decision tree........................
+## ======================================================
+##              Decision Tree Pre-processing         ----
+## ======================================================
 
 # decision tree model specification
 dtree_spec <- decision_tree(
   cost_complexity = tune(),
-  tree_depth = tube(),
+  tree_depth = tune(),
   min_n = tune()) %>% 
   set_engine("rpart") %>% 
   set_mode("regression")
@@ -96,7 +102,14 @@ dtree_wf <- workflow() %>%
   add_recipe(recip) %>% 
   add_model(dtree_spec)
 
-## ...............boosted regression ....................
+# create custom grid
+dtree_grid <- grid_regular(cost_complexity(),
+                          tree_depth(),
+                          min_n(), levels = 5)
+
+## ======================================================
+##              Boosted Regression Pre-processing    ----
+## ======================================================
 
 # create boosted regression tree model specification
 xgb_spec <- boost_tree(learn_rate = tune(),
@@ -114,24 +127,69 @@ xgb_wf <- workflow() %>%
   add_model(xgb_spec) %>% 
   add_recipe(recip)
 
+# isolate parameters
+xgb_param <- xgb_spec %>% extract_parameter_set_dials()
+
 ```
 
 
 ## Tuning Models
 
 ```{r}
-## ...............random forest........................
+## ======================================================
+##                Random Forest Tuning              ----
+## ======================================================
+
+# cross validation
 rf_tune_res <- rf_wf %>% 
   tune_grid(resamples = folds,
-            grid = 10)
+            grid = 5)
 
+# finalize workflow
+rf_final <- finalize_workflow(rf_wf, select_best(rf_tune_res, metric = "rmse"))
+
+## ======================================================
+##                Decision Tree Tuning               ----
+## ======================================================
+
+# build decision trees in parallel
+doParallel::registerDoParallel() 
+
+# cross validation
+dtree_tune_res <- tune_grid(
+    dtree_wf,
+    resamples = folds,
+    grid = dtree_grid,
+    metrics = metric_set(rmse))
+
+# finalize workflow
+dtree_final <- finalize_workflow(dtree_wf, select_best(dtree_tune_res, metric = "rmse"))
+
+## ======================================================
+##                Boosted Regression Tuning          ----
+## ======================================================
+
+# cross validation
+xgb_tune_res <- xgb_wf %>% 
+  tune_grid(resamples = folds,
+            grid = grid_latin_hypercube(finalize(xgb_param, x = train_data),
+                size = 5))
+
+# finalize workflow
+xgb_final <- finalize_workflow(xgb_wf, select_best(xgb_tune_res, metric = "rmse"))
+
+            
 ```
 
 
 
 
 ## Final Predictions
-Note
+
+```{r}
+
+```
+
 
 
 ## Model Assessment
