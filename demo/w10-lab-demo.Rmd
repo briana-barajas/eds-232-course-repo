@@ -4,8 +4,8 @@ output: html_document
 date: "2024-03-14"
 ---
 ```{r keras}
-install.packages("keras")
-keras::install_keras()
+# install.packages("keras")
+# keras::install_keras()
 ```
 ## Using Linear Regression
 ```{r sim_lin}
@@ -27,7 +27,7 @@ ggplot(sim, aes(x,y)) +
   geom_smooth(method = lm)
 ```
 
-```
+
 ```{r fit_lin}
 ols_model <- lm(y ~ x, sim)
 
@@ -36,8 +36,8 @@ sigma(ols_model)
 ols_model
 ```
 
-## Using Deep Learning through `{keras}`
-```{r mod}
+##Using Deep Learning through `{keras}`
+```{r mod} 
 x <- matrix(sim$x, ncol = 1)
 
 library(keras)
