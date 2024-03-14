@@ -2,7 +2,10 @@
 title: "Lab 8"
 author: "Briana Barajas"
 date: "2024-03-06"
-output: html_document
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
 ---
 
 ## Forest Cover Classification with SVM
@@ -30,7 +33,7 @@ You task is build both an SVM and a random forest model and compare their perfor
 
 ```{r, results='hide'}
 # read in data
-cover_type <- read_csv(here("data", "covtype_sample.csv")) %>% 
+cover_type <- read_csv(here("labs", "data", "covtype_sample.csv")) %>% 
   mutate(Cover_Type = as.factor(Cover_Type))
 ```
 
@@ -58,6 +61,7 @@ plyr::count(cover_type$Cover_Type) %>%
   labs(x = "Cover Type", y = "Frequency", title = "Cover Type Frequency") +
   theme_minimal() + theme(plot.title = element_text(hjust = 0.5, size = 16))
 ```
+
 **ANS:** It appears the soil types are mutually exclusive. The data set could be pivoted to change this into a single column, although I know from previous experience that this should not affect the outcome. Soil type 15 has no entries, and this lack of variation was addressed in the following recipe stepped. Additionally, I noticed that cover type 1 and 2 are the most represented in the data. To diminish the effect of this uneven distribution, it's important to create stratified samples.
 
 2.  Create the recipe and carry out any necessary preprocessing. Can you use the same recipe for both models?
@@ -105,11 +109,11 @@ rf_workflow <- workflow() %>%
 **ANS:** Only one recipe is required for the random forest model. For the support vector machine, `svm_rbf()` will be used instead, and the recipe will be specified during the fit step. Since all the variables being tested are numeric, it's not necessary to create dummy variables with `step_dummy()`. To ignore variables such as soil type 15 that have no variation, `step_zv()` was applied first.
 
 3.  Create the folds for cross-validation.
+
 ```{r}
 # create cross validation with strata for cover type (account for uneven distribution)
 cv_folds <- vfold_cv(data = train, v = 5, strata = Cover_Type)
 ```
-
 
 4.  Tune the models. Choose appropriate parameters and grids. If the computational costs of tuning given your strategy are prohibitive, how might you work around this?
 
@@ -178,4 +182,3 @@ svm_accuracy %>% bind_rows(rf_accuracy) %>% gt() %>%
 ```
 
 **ANS:** Overall, the random forest model was the better option. Although using `svm_rbf()` decreased the computation time of the support vector machine model, it was still more than double the run time of the random forest. I will note that I decreased the grid, and number of folds to improve the random forest run time. Despite this, it was still the better model. Ideally, I would increase the number of folds to improve the random forest model. While very sophisticated, I suspect working in multiple dimensions and transforming data could have decreased the accuracy of the svm model.
-
