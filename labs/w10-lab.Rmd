@@ -276,11 +276,13 @@ rf_final_pred <- rf_final_pred %>%
   select(id, DIC)
 
 # export final prediction data frames
+write_csv(xgb_final_pred, file = here("labs", "data", "ocean-chemistry-prediction", "predictions", "xgb_pred.csv"))
+write_csv(rf_final_pred, file = here("labs", "data", "ocean-chemistry-prediction", "predictions", "rf_pred.csv"))
 ```
 
 
 ## Summary
-I wanted to include the random forest model for it's reputation for being a common Kaggle winner. I wanted to compare it to other tree models, the decision tree and the boosted regression trees. I wanted to see if minimizing, or adding stochastic parameters improved the models predictive performance at all. I set the grid and number of folds to 5, 7, and 10 to see how these affected model performance. Once I finishing tuning my model, I created predictions for the testing subset, since I was interested in how the model would perform on data it hasn't been exposed to. Finally, I used the predictions to calculate the RMSE for all the models. Changing the grid size had a notable impact on which model performed best. Surprisingly, models with grid size 7 ended up being better than 5 or 10. Depending on the attempt, boosted regression tree performed better than random forest. The best trial for boosted regression trees was 6.2, whereas the best trial for random forest was 6.0. I decided to export predictions for both to submit.
+I wanted to include the random forest model for it's reputation for being a common Kaggle winner. I also wanted to see if minimizing, or adding stochastic parameters improved the models predictive performance, so I ran the decision tree and boosted regression tree models as well. I set the grid size and number of folds to 5, 7, and 10 to see how these affected model performance. Once I finishing tuning my model, I created predictions for the testing subset, since I was interested in how the model would perform on data it hasn't been exposed to. Finally, I used the predictions to calculate the RMSE for all the models. Changing the grid size had a notable impact on which model performed best. Surprisingly, models with grid size 7 ended up being better than 5 or 10. On average, boosted regression tree performed better than random forest but this wasn't always the case. The best trial for both boosted regression trees was and random forest was 6.0, so I decided to export both predictions.
 
 
 
