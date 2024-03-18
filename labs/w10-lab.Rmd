@@ -20,7 +20,19 @@ library(here)
 
 Read in Data
 ```{r, results='hide'}
-train_data <- read_csv(here("labs", "data", "ocean-chemistry-prediction", "train.csv")) 
+full_train <- read_csv(here("labs", "data", "ocean-chemistry-prediction", "train.csv")) 
+final_test_data <- read_csv(here("labs", "data", "ocean-chemistry-prediction", "test.csv"))
+
+# isolate ID column
+id_list <- final_test_data$id
+
+# update final test data for model
+final_test_data <- final_test_data %>% 
+  
+  # rename column to match
+  rename(TA1.x = TA1) %>% 
+  
+  select(-id)
 ```
 
 
@@ -29,25 +41,25 @@ train_data <- read_csv(here("labs", "data", "ocean-chemistry-prediction", "train
 Select exploration steps were set to `eval = FALSE` to minimize clutter.
 ```{r, eval=FALSE}
 # view data types
-glimpse(train_data)
+glimpse(full_train)
 
 # check for NAs
-colSums(is.na(train_data)) #entire ...13 column is NA
+colSums(is.na(full_train)) #entire ...13 column is NA
 
 # check if id column is unique
-length(unique(train_data$id)) == nrow(train_data)
+length(unique(full_train$id)) == nrow(full_train)
 ```
 
 ```{r}
 # update training data
-train_data <- train_data %>% 
+full_train <- full_train %>% 
   
   # remove column of NAs and unique identifier (id) column
   select(-c(id, ...13))
 
 # view distribution of DIC
-ggplot(train_data) +
-  geom_histogram(aes(x = DIC), col = "lightblue4", fill = "lightblue", bins = 30) +
+ggplot(full_train) +
+  geom_histogram(aes(x = DIC), fill = "maroon3", col = "maroon4", bins = 30) +
   labs(y = "Count", title = "Distribution of DIC") +
   theme_minimal() + 
   theme(plot.title = element_text(hjust = 0.5))
@@ -57,11 +69,19 @@ ggplot(train_data) +
 
 The following pre-processing steps will be utilized in most, if not all, of the machine learning models.
 ```{r}
+# split data
+split <- initial_split(full_train)
+train <- training(split)
+test <- testing(split)
+
 # specify folds for cross-validation
-folds <- vfold_cv(train_data, v = 5)
+folds <- vfold_cv(train, v = 10)
+
+# split data into test and train
+split <- initial_split(train)
 
 # define a recipe (regression formula)
-recip <- recipe(DIC ~., data = train_data) %>% 
+recip <- recipe(DIC ~., data = train) %>% 
   step_center(all_predictors()) %>% 
   step_scale(all_predictors())
 ```
@@ -105,7 +125,7 @@ dtree_wf <- workflow() %>%
 # create custom grid
 dtree_grid <- grid_regular(cost_complexity(),
                           tree_depth(),
-                          min_n(), levels = 5)
+                          min_n(), levels = 7)
 
 ## ======================================================
 ##              Boosted Regression Pre-processing    ----
@@ -132,7 +152,6 @@ xgb_param <- xgb_spec %>% extract_parameter_set_dials()
 
 ```
 
-
 ## Tuning Models
 
 ```{r}
@@ -143,7 +162,7 @@ xgb_param <- xgb_spec %>% extract_parameter_set_dials()
 # cross validation
 rf_tune_res <- rf_wf %>% 
   tune_grid(resamples = folds,
-            grid = 5)
+            grid = 7)
 
 # finalize workflow
 rf_final <- finalize_workflow(rf_wf, select_best(rf_tune_res, metric = "rmse"))
@@ -172,12 +191,11 @@ dtree_final <- finalize_workflow(dtree_wf, select_best(dtree_tune_res, metric = 
 # cross validation
 xgb_tune_res <- xgb_wf %>% 
   tune_grid(resamples = folds,
-            grid = grid_latin_hypercube(finalize(xgb_param, x = train_data),
-                size = 5))
+            grid = grid_latin_hypercube(finalize(xgb_param, x = train),
+                size = 7))
 
 # finalize workflow
 xgb_final <- finalize_workflow(xgb_wf, select_best(xgb_tune_res, metric = "rmse"))
-
             
 ```
 
@@ -187,12 +205,82 @@ xgb_final <- finalize_workflow(xgb_wf, select_best(xgb_tune_res, metric = "rmse"
 ## Final Predictions
 
 ```{r}
+## ======================================================
+##               Random Forest Final Predictions     ----
+## ======================================================
+# final fit
+rf_fit <- fit(rf_final, train)
 
+# final prediction on test data
+rf_pred_df <- augment(rf_fit, new_data = test)
+
+## ======================================================
+##               Decision Tree Final Predictions     ----
+## ======================================================
+# final fit
+dtree_fit <- fit(dtree_final, train)
+
+# final prediction on test data
+dtree_pred_df <- augment(dtree_fit, new_data = test)
+
+## ======================================================
+##               Boosted Regression Predictions     ----
+## ======================================================
+# final fit
+xgb_fit <- fit(xgb_final, train)
+
+# final prediction on test data
+xgb_pred_df <- augment(xgb_fit, new_data = test)
 ```
 
 
 
 ## Model Assessment
+
+```{r}
+# calculate rmse for random forest
+rf_rmse <- rmse(data = rf_pred_df, truth = DIC, estimate = .pred)
+rf_rmse$model <- "Random Forest"
+
+# calculate rmse for decision trees
+dtree_rmse <- rmse(data = dtree_pred_df, truth = DIC, estimate = .pred)
+dtree_rmse$model <- "Decision Tree"
+
+# calculate rmse for boosted regression trees
+xgb_rmse <- rmse(data = xgb_pred_df, truth = DIC, estimate = .pred)
+xgb_rmse$model <- "Boosted Regression"
+
+# print all results
+rf_rmse %>% bind_rows(dtree_rmse) %>% 
+  bind_rows(xgb_rmse) %>% gt::gt()
+
+```
+
+
+## Predictions for Submission
+
+```{r}
+# create final prediction on test data
+xgb_final_pred <- augment(xgb_fit, new_data = final_test_data)
+rf_final_pred <- augment(rf_fit, new_data = final_test_data)
+
+# bind back to original data to add id column
+xgb_final_pred <- xgb_final_pred %>% 
+  mutate(id = id_list) %>% 
+  rename(DIC = .pred) %>% 
+  select(id, DIC)
+
+rf_final_pred <- rf_final_pred %>% 
+  mutate(id = id_list) %>% 
+  rename(DIC = .pred) %>% 
+  select(id, DIC)
+
+# export final prediction data frames
+```
+
+
+## Summary
+I wanted to include the random forest model for it's reputation for being a common Kaggle winner. I wanted to compare it to other tree models, the decision tree and the boosted regression trees. I wanted to see if minimizing, or adding stochastic parameters improved the models predictive performance at all. I set the grid and number of folds to 5, 7, and 10 to see how these affected model performance. Once I finishing tuning my model, I created predictions for the testing subset, since I was interested in how the model would perform on data it hasn't been exposed to. Finally, I used the predictions to calculate the RMSE for all the models. Changing the grid size had a notable impact on which model performed best. Surprisingly, models with grid size 7 ended up being better than 5 or 10. Depending on the attempt, boosted regression tree performed better than random forest. The best trial for boosted regression trees was 6.2, whereas the best trial for random forest was 6.0. I decided to export predictions for both to submit.
 
 
 
